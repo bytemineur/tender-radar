@@ -1,0 +1,110 @@
+# 湖南政府采购网 / 政采云（www.ccgp-hunan.gov.cn）—— 已实测可用
+#
+# 【实测结论 2026-10-31】
+#   · 和上海/浙江/安徽同一套政采云门户，**但栏目码是老式数字体系**
+#     （`160-945988`），与安徽的 `ZcyAnnouncement2`、上海的 `77-938917`
+#     三套编号互不相通，别跨省照抄。
+#
+#   · 列表接口：POST /portal/category，键名 categoryCode（写错成 code
+#     会回 200 + data:null，不报错，表现就是「一条都抓不到」）。
+#
+#   · 首页 HTML 里抠出 42 个候选码，逐个实测后的归属：
+#         160-945988   采购公告        total=408   ← 取这个
+#         160-396330   采购/合同/中标/更正混合  total=1729  噪音占多数，不接
+#         160-986968   中标(成交)公告  total=611   噪音
+#         160-142462   合同公告        total=565   噪音
+#         160-563850   更正公告        total=54    （项目仍在进行，可作候选）
+#         160-253440   废标(终止)公告  total=47    噪音
+#         160-743362   单一来源公示    total=41    （体量小，暂不接）
+#         160-876764   采购意向公开    total=3     量太小
+#     其余 34 个码实测 total=0，是空栏目。
+#
+#   · **这个栏目很干净**：pathName 恒为「采购公告」，没有结果/合同类，
+#     所以 drop_if 只留一个标题兜底。
+#
+#   · 字段填充实测（pageSize=15）：
+#         purchaseName  15/15  ← 采购人在这，author 恒空（和安徽相反）
+#         districtName  15/15   地市（长沙市本级 / 湖南省本级）
+#         procurementMethod 15/15  采购方式（竞争性磋商…）
+#         bidOpeningTime  0/15  ← **没有开标时间**，截止只能靠正文补
+#         budgetPrice     1/15  ← 列表几乎不给预算，靠正文补
+#
+#   · 省份字段**不要**映射 districtName：实测 normalize/guess 会把
+#     「马鞍山市本级」误判成辽宁（鞍山），「蜀山区」「孝义市」判不出来。
+#     统一用 static_fields 写死省份，最稳。
+#
+#   · 详情页：GET /portal/detail?articleId=xxx 返回 JSON，
+#     result.data.content 是完整正文（实测 1.0～1.6 万字），4/4 成功。
+#     articleId 是 Base64 含 `+` `=`，管线已做 percent-encode。
+#
+# 业务价值：省财政厅、省自然资源厅、长沙市生态环境局等省本级与长沙市
+# 常年法律顾问采购集中，且多为 2026-2028 跨年度大单。
+
+id: hnzfcg
+name: 湖南政府采购网
+base_url: http://www.ccgp-hunan.gov.cn
+enabled: true
+mode: http
+version: "1.0.0"
+schedule: "50 */4 * * *"
+
+search_url: "http://www.ccgp-hunan.gov.cn/portal/category"
+
+response_type: json
+post_json: true
+json_items: "result.data.data"
+
+json_fields:
+  title: "title"
+  publish_time: "publishDate"
+  # 湖南没有 bidOpeningTime（实测 0/15），留着占位，真有值时也能吃
+  deadline: "bidOpeningTime"
+  # 湖南采购人恒在 purchaseName，author 恒空；写成双候选只为兼容
+  purchaser: "purchaseName||author"
+  budget: "budgetPrice"
+  notice_type: "pathName"
+  industry: "gpCatalogName"
+  article_id: "articleId"
+
+drop_if:
+  title: "终止|废标|中止"
+
+url_template: "http://www.ccgp-hunan.gov.cn/portal/detail?articleId={article_id}"
+
+static_fields:
+  province: "湖南"
+
+post_data:
+  pageNo: "{page}"
+  pageSize: 15
+  categoryCode: "160-945988"
+  keyword: "{keyword}"
+
+default_keyword: 法律顾问
+keywords:
+  - 法律顾问
+  - 法律服务
+  - 律师
+  - 诉讼代理
+
+delay:
+  min: 1.5
+  max: 3.0
+
+pagination:
+  type: page_param
+  param: pageNo
+  page_size: 15
+  max_pages: 2
+
+# ── 详情页：GET + JSON ──────────────────────────
+# 湖南列表既不给预算也不给开标时间，正文是唯一来源，所以详情必须开。
+fetch_detail: true
+detail_method: GET
+detail_url: "http://www.ccgp-hunan.gov.cn/portal/detail?articleId={article_id}"
+detail_json_items: "result.data"
+detail_json_fields:
+  content: "content"
+  purchaser: "purchaseName||author"
+  notice_type: "categoryNames"
+detail_limit: 8

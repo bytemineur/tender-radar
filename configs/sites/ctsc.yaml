@@ -1,0 +1,158 @@
+# 中国电信阳光采购网（caigou.chinatelecom.com.cn）
+#
+# 【实测结论 2026-10-24】
+#   运营商里最值得接的一个：全国 31 省 + 总部 + 各子公司（天翼云、数字生活、
+#   中电智安…）的采购公告都在这个门户上，法律类项目稳定输出。
+#   实测「法律 / 法律顾问 / 律师 / 诉讼 / 合规」五个词共命中 194 条，
+#   其中约 45% 是还能投的（比选公告 23、单一来源 19、资格预审 1）。
+#
+# 站点的六个特点，绕法都记在这里：
+#
+#   ① **整站是 SPA，但接口可以直接裸 HTTP 调**，不需要浏览器。
+#      首页 HTML 只有 2KB 的壳（#app），所有数据走
+#      POST /portal/base/announcementJoin/queryListNew。
+#      首页那几段 `/34efae7718710043/confuse/*.js` 是防护脚本，
+#      但对这个接口**不生效**——curl/httpx 都能直接拿到 200。
+#      （对比：ztbpub 是瑞数动态防护，裸 HTTP 一律失败，所以那个源放弃了。）
+#      注意 `/portal/home` 要鉴权（返回 401），列表接口不用。
+#
+#   ② **关键词字段叫 `title`**，不是 keyword / docTitle / searchValue / name。
+#      传错了不会报错，只是**完全不过滤**（total 仍是 987），最难发现。
+#      验证方法：带词和不带词对比 total（「法律」91 vs 不带词的全部 29430）。
+#
+#   ③ **`type` 一次只能传一个公告类型**，传逗号串报 500「type类型错误」，
+#      传数组报 500「json格式转换异常」。所以这里**干脆不传 type**：
+#      不带 type 就是全类型，再用 drop_if 挡掉结果类。
+#      （好处是「比选公告 / 单一来源」这些非招标公告的法律项目也能捞到，
+#        只筛 type=e2no 招标公告的话，「法律」一词只剩 1 条。）
+#      类型码留档，将来要单做某类时用得上：
+#        cgjh10 采购计划   xi9s 资格预审   e2no 招标公告
+#        e3erht 询比公告   e8vif 谈判采购   ac9tn 拍卖
+#        n0eves 采购结果   ow7t 直接采购   th4gie 澄清公示
+#
+#   ④ **列表就给截止时间**（`pEndDate`），这在整个项目里都少见——
+#      多数源要在详情正文里用正则抠。所以不取详情的条目也有截止时间。
+#
+#   ⑤ **正文在详情接口的 `context` 字段，不是 `content`**。
+#      `content` 是空字符串，别被名字骗了。
+#      详情接口统一是 POST /portal/base/tenderannouncement/view，
+#      body {"type": docTypeCode, "id": docId, "securityViewCode": ...}。
+#      ⚠️ 但这个端点**只服务招标公告(TenderAnnouncement)和比选公告(CompareSelect)**；
+#      资格预审/结果/终止各有自己的端点（prequalfication/view、
+#      resultannounc/view、terminationannounc/view）。取不到就走列表字段入库，
+#      不会报错，只是没有正文和预算——这是已知取舍。
+#
+#   ⑥ **详情有稳定 URL**，可以给用户点：
+#      /DeclareDetails?id={docId}&type=1&docTypeCode={docTypeCode}&securityViewCode={...}
+#      所以 row["url"] 指向这个页面，详情正文另走接口（detail_url）。
+#
+#   ⑦ `provinceName` 不全是省份：还有「总部」「天翼云公司」「数字生活公司」
+#      这类（其实是发布主体所在机构）。normalize_province 认不出的会留空，
+#      不影响入库。
+#
+# 未做：登录后的「我要参加」、附件下载。都需供应商账号，不做。
+
+id: ctsc
+name: 中国电信阳光采购网
+base_url: https://caigou.chinatelecom.com.cn
+enabled: true
+mode: http
+response_type: json
+version: "1.0.0"
+schedule: "0 */3 * * *"
+
+search_url: https://caigou.chinatelecom.com.cn/portal/base/announcementJoin/queryListNew
+
+headers:
+  Referer: https://caigou.chinatelecom.com.cn/
+
+post_json: true
+post_data:
+  pageNum: "{page}"
+  pageSize: "20"
+  # 关键词字段就是 title，见上面 ②
+  title: "{keyword}"
+
+json_items: data.pageInfo.list
+json_fields:
+  title: docTitle
+  publish_time: createDate
+  # 列表直接给截止时间，见上面 ④
+  deadline: pEndDate
+  province: provinceName
+  notice_type: docType
+  external_id: id
+  # 详情接口和详情页 URL 都要用这三个，先落到行里
+  src_id: docId
+  src_type: docTypeCode
+  src_sec: securityViewCode
+
+# 给用户点的详情页。注意 URL 里的 **type 是按公告类型变的**（选哪个视图）：
+#   1 → 招标公告/比选公告   2 → 单一来源(直接采购公示)
+#   4 → 询比 enquiry        6 → 资格预审   7 → 采购结果
+# 写死 1 的话，单一来源的条目点进去是「未获取到公告信息」——
+# 而单一来源恰好占法律类条目的四成，所以必须按类型给。
+url_template_map:
+  TenderAnnouncement: >-
+    https://caigou.chinatelecom.com.cn/DeclareDetails?id={src_id}&type=1&docTypeCode={src_type}&securityViewCode={src_sec}
+  CompareSelect: >-
+    https://caigou.chinatelecom.com.cn/DeclareDetails?id={src_id}&type=1&docTypeCode={src_type}&securityViewCode={src_sec}
+  PurchaseAnnounceBasic: >-
+    https://caigou.chinatelecom.com.cn/DeclareDetails?id={src_id}&type=2&docTypeCode={src_type}&securityViewCode={src_sec}
+  Prequalfication: >-
+    https://caigou.chinatelecom.com.cn/DeclareDetails?id={src_id}&type=6&docTypeCode={src_type}&securityViewCode={src_sec}
+url_template: >-
+  https://caigou.chinatelecom.com.cn/DeclareDetails?id={src_id}&type=1&docTypeCode={src_type}&securityViewCode={src_sec}
+
+fetch_detail: true
+# 详情端点**按公告类型分**，这是 detail_url_map 的第一个用例：
+#   TenderAnnouncement 招标公告 \
+#   CompareSelect      比选公告  |→ /tenderannouncement/view （正文键 context）
+#   PurchaseAnnounceBasic 单一来源 → /purchaseannounce/view （正文键 announceContext）
+#   Prequalfication    资格预审  → /prequalfication/view    （正文键 context）
+# 同一个 body（type/id/securityViewCode）打到不同端点，正文字段名还不一样。
+# 查不到就回落到 detail_url。
+detail_url_key: src_type
+detail_url_map:
+  TenderAnnouncement: https://caigou.chinatelecom.com.cn/portal/base/tenderannouncement/view
+  CompareSelect: https://caigou.chinatelecom.com.cn/portal/base/tenderannouncement/view
+  PurchaseAnnounceBasic: https://caigou.chinatelecom.com.cn/portal/base/purchaseannounce/view
+  Prequalfication: https://caigou.chinatelecom.com.cn/portal/base/prequalfication/view
+detail_url: https://caigou.chinatelecom.com.cn/portal/base/tenderannouncement/view
+detail_post_data:
+  type: "{src_type}"
+  id: "{src_id}"
+  securityViewCode: "{src_sec}"
+# 详情响应是 {"code":200,"data":{...}}，记录对象就在 data 里（不是列表的
+# data.pageInfo.list）——不单独给就会一条都解析不出来，而且不报错
+detail_json_items: data
+detail_json_fields:
+  # 正文键名两种都有，用 | 列候选，取第一个非空的，见上面 ⑤
+  content: "context|announceContext"
+  agency: agentProviderName
+# 实测一轮 70 条里约 64 条是新的，全部取详情 = 10 次列表 + 64 次详情。
+# 站点不限流（整轮 145 秒，没有一次 403），所以给到 60 基本等于不设限，
+# 留一点余量防止哪天关键词突然变多。
+detail_limit: 60
+
+# 不带 type 会把结果类公告一起返回（实测六词合计：采购结果 49、终止公告 1、
+# 技术规范书 4），全部挡掉。字段名用**映射后**的 notice_type，不是原始 docType。
+drop_if:
+  notice_type: "采购结果|终止公告|技术规范书"
+
+default_keyword: 法律
+keywords:
+  - 法律
+  - 法律顾问
+  - 律师
+  - 诉讼
+  - 合规
+
+pagination:
+  type: page_param
+  param: pageNum
+  max_pages: 2
+
+delay:
+  min: 1.5
+  max: 3.0

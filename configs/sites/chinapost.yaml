@@ -1,0 +1,126 @@
+# 中国邮政电子采购与物资供应平台 cg.11185.cn —— 央企采购平台
+#
+# 【实测结论 2026-10-25】
+#   · **零反爬**。裸 httpx GET 直连 200，无瑞数、无 WAF、无 cookie 依赖、
+#     不需要浏览器、不需要 Referer（带上也无害）。是本项目里最好接的央企源之一。
+#   · 栏目按 categoryId 分：88 采购公告 / 89 变更公告 / 90 中标候选人公示 /
+#     91 成交中标结果 / 94 网站公告 / 95 政策法规。
+#     这里只采 **88 采购公告** —— 只有它有「报名截止时间」，
+#     变更/结果类公告对招标雷达没有时效价值。
+#   · **服务端关键词搜索可用**，参数是 `goSearch`（不是 title/key/search，
+#     试过这三个都无效、返回与无关键词完全相同的页面）。
+#     实测命中：法律 37 页 / 诉讼 16 / 律师 13 / 法律顾问 12 / 纠纷 9 / 仲裁 4
+#     （约 10 条/页）。对比 chnenergy 那种「拉全量本地筛」的源，这里省了几十倍请求。
+#   · 注意搜索是**全文匹配**而不是标题匹配，所以「纠纷」会命中
+#     「特快邮件货运险」「劳务派遣」这类正文里出现纠纷字样的公告。
+#     刻意不收「合规」（20 页）——实测点开全是「旺季氛围营造」「月台移动踏板」，
+#     噪声大到淹没真线索。
+#   · URL 里 `tabName=采购公告` 是中文，httpx 会自动做 percent-encode，
+#     yaml 里原样写中文即可，不要自己编码（会双重编码）。
+#   · `searchDate=2016-01-01` 是硬编码的历史起点。页面上这个值由
+#     `dates=300`（减 300 个月）算出来，写死一个足够早的日期效果等价，
+#     且不用担心时钟漂移。
+#   · 列表页字段**意外地全**：项目编号、采购方式、报名截止时间都在
+#     `ul.newsinfo` 里，按 nth-child 取。所以**不需要抓详情页**——
+#     详情页正文是 pdfjs iframe（`openFileById` 加载 PDF），HTML 里一个字没有，
+#     抓了也白抓（和大唐 datang 一样的结论）。
+#   · 发布日期在详情页 URL 里就有（`/biddingBulletin/2026-10-23/141107.html`），
+#     直接从 href 正则抠，比解析 `div.newsDate`（文本是「2026」+「10/23」两截）干净。
+#   · 采购人**没有独立字段**，但标题开头就是采购单位
+#     （「中国邮政集团有限公司大连市分公司2026-2027年度常年法律顾问…」），
+#     用正则从标题抠，实测覆盖率 82%，剩下的多是「海口邮件处理中心…」这类
+#     不以邮政字样开头的二级单位项目，留空比填错好。
+#
+# 与其他源的分工：它是继 sgcc（国家电网）、csg（南方电网）、datang（大唐）之后
+# 第四个央企入口，覆盖邮政集团各省/市分公司 + 邮储 + 速递物流。
+# 特点是**分支机构多、法律类需求真实**（常年法律顾问、诉讼代理、法院送达外包），
+# 且命中密度高于电网系。
+
+id: chinapost
+name: 中国邮政电子采购与物资供应平台
+base_url: https://cg.11185.cn
+enabled: true
+mode: http
+version: "1.0.0"
+schedule: "15 */4 * * *"
+
+# 列表页（HTML，GET）。goSearch 是关键词参数，page 是页码。
+search_url: "https://cg.11185.cn/zgyzcms/category/bulletinList.html?searchDate=2016-01-01&dates=300&goSearch={keyword}&categoryId=88&tabName=采购公告&industryName=&status=&page={page}"
+
+# 列表结构：
+#   <ul class="newslist">
+#     <li>
+#       <a href="https://cg.11185.cn/biddingBulletin/2026-10-23/141107.html" title="标题">
+#         <h1>标题</h1>
+#         <ul class="newsinfo">
+#           <li>项目编号：<span>...</span></li>
+#           <li>采购方式：<span>公开询比</span></li>
+#           <li>报名截止时间：<span>2026-10-28 17:00</span></li>
+#         </ul>
+#         <div class="newsDate"><div>2026</div>10/23</div>
+#       </a>
+#     </li>
+#   </ul>
+#
+# 容器必须写 `>` 直接子元素：`ul.newslist li` 会把 newsinfo 里的 li 也匹配进来
+# （实测 40 个而不是 10 个），每条会被拆成 4 行。
+list_container: "ul.newslist > li"
+
+list_fields:
+  title:
+    selectors: ["h1"]
+    extract: text
+  url:
+    selectors: ["a"]
+    extract: "attr:href"
+  # 发布日期藏在详情页 URL 的目录名里，比 div.newsDate 好取
+  publish_time:
+    selectors: ["a"]
+    extract: "attr:href"
+    regex: '\d{4}-\d{2}-\d{2}'
+  # 项目编号。注意：Tender 模型目前**没有存项目编号的字段**，
+  # 这一行抓到也不会落库（sgcc 的 code: PURPRJ_CODE 同理）。
+  # 留着是因为取值已验证可用，将来模型加字段时直接接上即可。
+  code:
+    selectors: ["ul.newsinfo li:nth-child(1) span"]
+    extract: text
+  # 采购方式（公开招标 / 公开询比 / 直接采购 / 竞争性磋商…）同样无字段可落，
+  # 且 notice_type 由 extract.rule_notice_type 从标题判定更准，这里不取。
+  # 报名截止时间（不是投标截止，但用户要赶在它之前报名，时效价值一样）
+  deadline:
+    selectors: ["ul.newsinfo li:nth-child(3) span"]
+    extract: text
+  # 采购人：标题开头就是采购单位，贪婪匹配到最后一个「分公司」
+  purchaser:
+    selectors: ["h1"]
+    extract: text
+    regex: '^【?(中国邮政[^】]*分公司)'
+
+default_keyword: 法律
+keywords:
+  - 法律
+  - 法律顾问
+  - 律师
+  - 诉讼
+  - 纠纷
+  - 仲裁
+# 「法务」实测只有 1 页 6 条且已被「法律顾问」覆盖，加了只多一次请求，不值。
+
+delay:
+  min: 1.5
+  max: 3.0
+
+pagination:
+  type: page_param
+  param: page
+  page_size: 10
+  # 严格按发布时间倒序：实测「法律」第 1 页是 10-23/10-21/10-20，
+  # 第 2 页 09-18/09-16/09-15，第 3 页 08-21/08-20/08-17 —— 3 页跨约 2 个月。
+  # 配每 4 小时一轮，3 页足够兜住新增，首轮还能顺带回灌两个月的历史。
+  max_pages: 3
+
+# 详情页正文是 PDF（pdfjs iframe），HTML 里抓不到任何正文，
+# 而所需字段列表页已经给全了，所以不开详情。
+# （注意 yaml 里的键名是 fetch_detail，不是 fetch_detail_default ——
+#  后者是 SiteRule 的属性名，写进配置会被忽略。）
+fetch_detail: false

@@ -1,0 +1,107 @@
+# 华润集团守正电子招标平台（招标公告频道）www.szecp.com.cn —— 央企采购平台
+#
+# 【实测结论 2026-10-25】
+#   · ⚠️ **你给的 szecp-uat.crc.com.cn 是 UAT 测试环境，不能用**：
+#       500 条里 59% 标题带「测试」字样（【国泰测试】/ 勿动 /
+#       ε=ε=ε=┏(゜ロ゜;)┛流程测试）；法律类关键词命中 **0**；
+#       最新数据停在 2026-06-15（距今 4 个月）。
+#       且 UAT 走的是老 TLS，要 `tls_legacy: true` 才连得上
+#       （报 [SSL: UNSAFE_LEGACY_RENEGOTIATION_DISABLED]）。
+#     **正式站是 www.szecp.com.cn**，今天 18:15 还在发公告。本配置接的是正式站。
+#     另外 szecp.crc.com.cn（JS 里硬编码的那个搜索域）当前 502 Bad Gateway。
+#   · 门户首页是 JS 渲染的空壳，真实接口是
+#       **GET /rcms-external-rest/content/getSZExtData**
+#     参数：channelIds（频道）/ pageNo / pageSize / **title（关键词）**。
+#     无任何反爬、无签名、无 cookie，裸 httpx 直连 200，是本项目最好接的源之一。
+#   · ✅ **关键词参数叫 `title`**（不是 keyword / keyWord / wd / query ——
+#     这些传了不报错、totalCount 也不变，最容易误判成"站点不支持搜索"）。
+#     命中（本频道 26909）：法律 16 / 法律顾问 4 / 纠纷 4 / 诉讼 2 / 仲裁 1 / 律师 1。
+#   · `channelIds` **不支持逗号传多个**（传 "26909,26915" 只返回 26909 的结果），
+#     所以招标 / 采购两个频道拆成两个站点配置，见 szecpcg.yaml。
+#   · `pageSize` 实测 10/20/50/100/200 都可用，这里用 100。
+#     按 publishDate 倒序：无关键词时 100 条约跨 9 天（2026-10-25~10-16）。
+#   · 列表字段已经很全：
+#       title 标题 / url 详情链接（相对 "../first_zbgg/..."）/
+#       publishDate 发布（"2026-10-25 18:15:40"）/
+#       **deadline 截止（"20261030235900"，14 位）** /
+#       number 项目编号 / purchaseType 招采类型（货物/工程/服务）/
+#       businessUnit 业务单元码（CR005 等，68 个，可通过
+#       POST /rcms-external-rest/rmSysDictData/queryByDictCode
+#       {"dictCode":"businessUnit","siteId":"9493"} 反查名称）
+#     所以 **`fetch_detail: false`** —— 详情页
+#     /first_zbgg/2026-09-01/2813180.html 是 42KB 静态页，
+#     只多给「招标人 / 代理机构」两项，而采购人已从标题抠出（96% 覆盖），不值。
+#   · 采购人：接口没有独立字段，`businessUnit` 只是集团级业务单元码（太粗）。
+#     改从标题开头抠（标题几乎都是「单位名 + 项目名」直连写法），
+#     本项目为此新增了 `json_field_regex` 能力。覆盖率 **96%**，
+#     未命中的是「常年法律顾问服务公告」这类本身就没写单位名的，留空比填错好。
+#   · 刻意不收「合规」：招标公告频道里是「合规与扩能改造项目-洁净区」这类工程，
+#     与另几个央企源踩过的坑一致。
+#
+# 与其他源的分工：华润是**大消费 + 大健康 + 地产 + 电力 + 燃气**综合央企，
+# 且平台同时代管中国旅游集团（中旅 / 港中旅 / 中免）的采购，
+# 与已接的电网系、邮政系、招商局系行业错开。法律需求真实：
+# 常年法律顾问、房屋租赁合同纠纷执行、诉讼财产保全责任险、
+# 收购合同纠纷仲裁、酒店层级压减——**纠纷执行类和保险类是独有的类型**。
+
+id: szecp
+name: 华润守正电子招标平台·招标公告
+base_url: https://www.szecp.com.cn
+enabled: true
+mode: http
+version: "1.0.0"
+schedule: "10 */4 * * *"
+
+# 列表接口（JSON，GET）
+# ⚠️ `format=json` **不能去掉**。这是个 Spring MVC 接口，开了
+#   ContentNegotiationConfigurer.favorParameter(true)，不带 format 参数时
+#   按 Accept 头协商，结果是**同一组参数一会儿 JSON 一会儿 XML**
+#   （实测 26915 第 1 页稳定返回 application/xhtml+xml，26909 第 2 页也是 XML）。
+#   拿到 XML 时 parse_list_json 解析出 0 条，表现为"选择器失效"的假象。
+#   加上 format=json 后 24/24 全 JSON（Accept 头怎么改都没用，只有这个参数有效）。
+search_url: "https://www.szecp.com.cn/rcms-external-rest/content/getSZExtData?channelIds=26909&pageNo={page}&pageSize=100&title={keyword}&format=json"
+response_type: json
+json_items: "data.data"
+
+headers:
+  Referer: "https://www.szecp.com.cn/first_zbgg/index.html"
+
+json_fields:
+  title: title
+  publish_time: publishDate
+  # 14 位 "20261030235900"，normalize 的 (\d{4})(\d{2})(\d{2}) 能认
+  deadline: deadline
+  # 相对路径 "../first_zbgg/2026-10-15/2935295.html"，
+  # _finalize_row 会用 base_url 做 urljoin
+  url: url
+  purchaser: title
+  # 项目编号。注意 Tender 模型目前没有存编号的字段，抓到也不落库，
+  # 留着是将来加字段时直接可用。
+  code: number
+
+# 采购人从标题开头抠：单位名 + 项目名是直连写法
+json_field_regex:
+  purchaser: '^([\u4e00-\u9fa5A-Za-z0-9（）()·\-]{4,28}?(?:股份有限公司|有限责任公司|有限公司|集团公司|公司|医院|研究院|大学|中心|局|委员会))'
+
+default_keyword: 法律
+keywords:
+  - 法律
+  - 法律顾问
+  - 律师
+  - 诉讼
+  - 纠纷
+  - 仲裁
+# 「合规」是工程类噪声，不收。
+
+delay:
+  min: 1.0
+  max: 2.0
+
+pagination:
+  type: page_param
+  param: pageNo
+  page_size: 100
+  # 本频道法律类最多才 16 条，1~2 页就够了。
+  max_pages: 2
+
+fetch_detail: false

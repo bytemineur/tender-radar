@@ -1,0 +1,142 @@
+/* 政策文档页样式。
+   刻意不另起一套配色：直接复用 style.css 的设计令牌，
+   主题（跟随系统 / 浅色 / 深色）与主体界面保持一致。 */
+
+.doc-wrap {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 56px 24px 96px;
+}
+
+.doc-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.doc-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-2);
+  text-decoration: none;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.doc-back:hover { color: var(--brand); border-color: var(--brand); }
+
+.doc-wrap h1 {
+  font-size: 26px;
+  letter-spacing: -0.01em;
+  margin: 0 0 10px;
+}
+
+.doc-meta {
+  font-size: 12.5px;
+  color: var(--text-3);
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 28px;
+}
+
+.doc-wrap h2 {
+  font-size: 16.5px;
+  margin: 32px 0 10px;
+  padding-top: 22px;
+  border-top: 1px solid var(--border);
+  color: var(--text);
+}
+.doc-wrap h2:first-of-type { border-top: 0; padding-top: 0; }
+
+.doc-wrap h3 {
+  font-size: 14.5px;
+  margin: 18px 0 6px;
+  color: var(--text);
+}
+
+.doc-wrap p {
+  font-size: 14px;
+  line-height: 1.85;
+  color: var(--text-2);
+  margin: 0 0 12px;
+}
+
+.doc-wrap ol, .doc-wrap ul { margin: 0 0 14px; padding-left: 22px; }
+
+.doc-wrap li {
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--text-2);
+  margin-bottom: 6px;
+}
+
+.doc-wrap strong { color: var(--text); }
+
+/* 术语简称，例如「本平台」「来源网站」首次出现时用 */
+.term { color: var(--text); font-weight: 600; }
+
+.doc-note {
+  font-size: 13.5px;
+  line-height: 1.8;
+  color: var(--text-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--brand);
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin: 16px 0 20px;
+}
+
+.doc-sign {
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  font-size: 13.5px;
+  color: var(--text-2);
+  text-align: right;
+}
+
+/* 政策页底部的版权行，与首页页脚保持一致 */
+.doc-foot {
+  margin-top: 28px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-3);
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.doc-foot a { color: var(--text-3); text-decoration: none; }
+.doc-foot a:hover { color: var(--brand); }
+
+/* 顶部小导航：在两份政策之间跳转 */
+.doc-switch {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+.doc-switch a {
+  font-size: 12.5px;
+  color: var(--text-2);
+  text-decoration: none;
+  padding: 5px 12px;
+  border-radius: 6px;
+}
+.doc-switch a:hover { color: var(--text); }
+.doc-switch a.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgb(0 0 0 / .06); }
+
+@media (max-width: 640px) {
+  .doc-wrap { padding: 32px 18px 64px; }
+  .doc-wrap h1 { font-size: 22px; }
+  .doc-top { flex-direction: column; align-items: flex-start; }
+}

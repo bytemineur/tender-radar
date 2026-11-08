@@ -1,0 +1,102 @@
+# 上海政府采购网 / 政采云（www.zfcg.sh.gov.cn）—— 已实测可用
+#
+# 【实测结论 2026-10-24】
+#   · 和浙江（zjzfcg）同一套政采云门户，接口、字段几乎完全一致，
+#     所以这份配置是照着 zjzfcg 改出来的，**只有 categoryCode 和域名不同**。
+#     后面再接其他省的政采云，照这个套路改两行就行。
+#
+#   · 列表接口：POST /portal/category（**不是** /portal/searchHome，
+#     后者是首页各栏目摘要，实测 keyword=法律顾问 返回 total=0）。
+#
+#   · 栏目代码和浙江的 `110-606633` 不是一个体系。上海首页的栏目树里：
+#         shCategory12  重要通知
+#         77-938917     采购公告 / 更正 / 结果 / 终止 / 合同 / 履约验收 …（政府采购）
+#         77-489585     非政府采购项目（招标 / 更正 / 结果）
+#     这里取 **77-938917**（政府采购大类）。它的子集靠 pathName 区分，
+#     所以必须配 drop_if，否则抓下来八成是已经成交的噪音。
+#
+#   · **噪音比例很高**：实测 5 页 75 条里只有 15 条还能投（20%）——
+#       采购合同公告 42 / 中标（成交）结果公告 15 / 竞争性磋商公告 11
+#       / 公开招标公告 4 / 采购终止（废标）公告 3
+#     drop_if 挡掉前两类 + 终止类，剩下的才是有效商机。
+#
+#   · 关键词字段名是 **keyword**（和浙江一致）。实测生效：
+#       keyword=法律顾问 → 80 条；keyword 留空 → 528348 条。
+#
+#   · 时间字段是 13 位毫秒时间戳（publishDate / bidOpeningTime），
+#     解析层有 _normalize_ms_timestamp 统一转换，不用在这里处理。
+#
+#   · **预算质量高**。可投的公告基本都带 budgetPrice，格式是
+#     "540000元" 这种带单位的字符串，parse_money 能直接吃。
+#     实测法律顾问项目客单价 54 万～220 万，是本站最值得盯的品类之一。
+#
+#   · 列表字段已经很全（预算 / 采购人 / 开标时间 / 区县 / 品目），
+#     详情页是 SPA 空壳且取了也慢，所以 **fetch_detail 关着**（同浙江）。
+#
+# 业务价值：上海各级机关、街镇、事业单位常年法律顾问采购量大且预算高，
+# 川沙新镇单个项目就 220 万。
+#
+# 未接入：77-489585「非政府采购项目」（国企/事业单位招标）也是有效商机，
+# 但一个配置只能带一个 categoryCode，需要时复制本文件改这行即可。
+
+id: shzfcg
+name: 上海政府采购网
+base_url: https://www.zfcg.sh.gov.cn
+enabled: true
+mode: http
+version: "1.0.0"
+schedule: "40 */3 * * *"
+
+search_url: "https://www.zfcg.sh.gov.cn/portal/category"
+
+response_type: json
+post_json: true
+json_items: "result.data.data"
+
+json_fields:
+  title: "title"
+  publish_time: "publishDate"
+  deadline: "bidOpeningTime"
+  purchaser: "purchaseName"
+  budget: "budgetPrice"
+  province: "districtName"
+  notice_type: "pathName"
+  industry: "gpCatalogName"
+  article_id: "articleId"
+
+# 只留还能投的。字段名用**映射后**的名字（notice_type），
+# 不是站点原始的 pathName。
+drop_if:
+  notice_type: "合同公告|结果公告|成交公告|终止|废标|履约验收|框架协议"
+
+url_template: "https://www.zfcg.sh.gov.cn/portal/detail?articleId={article_id}"
+
+static_fields:
+  province: "上海"
+
+post_data:
+  pageNo: "{page}"
+  pageSize: 15
+  categoryCode: "77-938917"
+  isGov: true
+  keyword: "{keyword}"
+
+default_keyword: 法律顾问
+keywords:
+  - 法律顾问
+  - 法律服务
+  - 律师
+  - 诉讼代理
+
+delay:
+  min: 1.5
+  max: 3.0
+
+pagination:
+  type: page_param
+  param: pageNo
+  page_size: 15
+  max_pages: 2
+
+# 列表已给预算/采购人/开标时间，详情页是 SPA 且慢，不必逐条取
+fetch_detail: false

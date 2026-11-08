@@ -1,0 +1,117 @@
+# 中国移动采购与招标网（b2b.10086.cn）—— 央企采购平台，已实测可用
+#
+# 【实测结论 2026-10-22】
+#   · 纯 HTTP POST JSON 可用，不登录、不带 cookie 也能查。
+#     接口藏在 SPA 首页背后，直接 curl 列表页只能拿到 855 字节的壳。
+#   · 两个地址都要认清：
+#       /api-b2b/api-sync-es/white_list_api/b2b/publish/queryList     ← 用它
+#       /api-b2b/api-portal/white_list_api/b2b/...                    ← 字典/配置，没用
+#   · 关键词字段名是 **name**（不是 title / keyword / searchKey，
+#     那七个名字我都试过，传了等于没传，totalElements 一直是全量 281）。
+#     实测 name="法律顾问" → 2 条，「阜阳移动外聘法律顾问服务选型」正中目标。
+#   · 返回值里直接带着截止时间（tenderSaleDeadline）和开标时间（backDate），
+#     这是本系统里少见的「列表页就有截止」的源，雷达的剩余天数有真实数据。
+#   · companyTypeName 是省公司/专业公司名（安徽、辽宁、在线营销服务中心…），
+#     不是省份，所以 province 交给抽取层从正文猜，不写死。
+#   · 列表不返回正文（noticeContent 恒为 null），预算要去详情页才有，
+#     所以 fetch_detail 开着。详情页是 SPA，需用真浏览器渲染才能拿到正文。
+#
+# 与其他源的分工：它是目前唯一的**通信类央企**来源。
+# 移动的省公司每年都会外聘常年法律顾问，标段金额普遍不低。
+
+id: cmcc
+name: 中国移动采购与招标网
+base_url: https://b2b.10086.cn
+enabled: true
+mode: http
+version: "1.0.0"
+schedule: "50 */3 * * *"
+
+search_url: "https://b2b.10086.cn/api-b2b/api-sync-es/white_list_api/b2b/publish/queryList"
+
+response_type: json
+post_json: true
+json_items: "data.content"
+
+# 站点的 TLS 配置很老，握手时会发起重协商，
+# OpenSSL 3.x 默认直接拒绝 → UNSAFE_LEGACY_RENEGOTIATION_DISABLED。
+# 必须开 OP_LEGACY_SERVER_CONNECT 才连得上（httpx 的 verify=False 救不了）。
+tls_legacy: true
+
+json_fields:
+  title: "name"
+  publish_time: "publishDate"
+  deadline: "tenderSaleDeadline"
+  notice_type: "publishOneType_dictText"
+  uuid: "uuid"
+  notice_id: "id"
+  # 刻意**不**映射 purchaser：companyTypeName 是省公司/专业公司名
+  #（安徽、辽宁、在线营销服务中心…），是归属单位不是采购人。
+  # 当成采购人填进去会被 _plausible_org 挡掉，但会让抽取层白跑一趟。
+  # 真正的采购人信息在正文里，交给 rule_purchaser 去抽。
+
+# 列表接口不给详情链接，详情页按uuid拼（与前端路由一致）
+url_template: "https://b2b.10086.cn/b2b/main/pcNoticeDetails.html?uuid={uuid}"
+
+post_data:
+  current: "{page}"
+  size: "20"
+  # PROCUREMENT = 招采公告；publishOneType 同为 PROCUREMENT 时是采购公告
+  publishType: "PROCUREMENT"
+  publishOneType: "PROCUREMENT"
+  name: "{keyword}"
+  sfactApplColumn5: "PC"
+
+default_keyword: 法律
+keywords:
+  - 法律
+  - 法律顾问
+  - 诉讼
+  - 律师
+
+delay:
+  min: 1.5
+  max: 3.0
+
+pagination:
+  type: page_param
+  param: current
+  page_size: 20
+  max_pages: 2
+
+# 列表缺预算，逐条取详情补上
+fetch_detail: true
+fetch_detail_default: true
+
+# ── 详情页（SPA 渲染后的 DOM）────────────────────────────────
+detail_container: "div.notice-detail, div.detail-content, div.content"
+
+detail_fields:
+  content:
+    selectors:
+      - "div.notice-detail"
+      - "div.detail-content"
+      - "div.content"
+      - "body"
+    extract: text
+  deadline:
+    selectors:
+      - "div.notice-detail"
+      - "div.content"
+      - "body"
+    extract: text
+    regex: "(?:递交截止时间|投标截止时间|响应截止时间|报价截止时间|截止时间)[^0-9]{0,24}(\\d{4}[-/年.]\\d{1,2}[-/月.]\\d{1,2})"
+  budget:
+    selectors:
+      - "div.notice-detail"
+      - "div.content"
+      - "body"
+    extract: text
+    regex: "(?:预算金额|采购预算|项目预算|最高限价|不含税金额)[^0-9]{0,12}[\\d,\\.]+\\s*(?:亿元|万元|万|元)"
+  purchaser:
+    selectors:
+      - "div.notice-detail"
+      - "div.content"
+      - "body"
+    extract: text
+    regex: "(?:采购人|招标人|招标单位|采购单位|招标人名称)[^\\u4e00-\\u9fa5]{0,4}([\\u4e00-\\u9fa5（）()、A-Za-z0-9]{4,40})"

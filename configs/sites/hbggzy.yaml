@@ -1,0 +1,85 @@
+# 湖北省公共资源交易平台（hbggzyfwpt.cn）—— 已实测可用
+#
+# 【实测结论 2026-10-22】
+#   · 网站首页那几个栏目全是 ajax 拉的，列表接口是
+#       POST /jyxxAjax/zfcg/cggg           采购公告   ← 法律服务主战场
+#       POST /jyxxAjax/zfcg/gzsx           更正事项
+#       POST /jyxxAjax/zfcg/zbjggs         中标结果
+#     表单参数：pageSize / area / bulletinTitle / currentPage。
+#   · 关键词参数是 bulletinTitle（不是 searchText / keyword / title，
+#     后六个名字我都试过，传了完全不生效，接口继续返回最新 N 条）。
+#     它是**按标题精确子串**匹配的，实测「法律」->3 条、「律师」->1 条，全部命中。
+#   · 注意：不能只搜「法律服务」。湖北的公告标题常写成
+#     「法规专业法律专项服务」「政府法律顾问服务」，含「法律」但不含「法律服务」，
+#     所以关键词列表里放的是短词。
+#   · 返回值里有 bulletinContent（完整正文，HTML 富文本），
+#     所以**不需要再逐条取详情**——和 ggzy 一样是「一次请求拿全」的省事类型。
+#   · 列表响应没有详情 URL，但前端 JS 暴露了构造规则：
+#       /jyxx/zfcg/cgggDetail?guid={guid}
+#     见首页 function zfcg() 里的 $.each 渲染分支，已验证。
+#
+# 覆盖的是财政条线（省本级 + 武汉/黄冈/黄石/阳新等市县），
+# 与 ccgp 有重叠，但 ccgp 深分页受限，这里能补齐省内更细的线索。
+
+id: hbggzy
+name: 湖北公共资源交易
+base_url: https://www.hbggzyfwpt.cn
+enabled: true
+mode: http
+version: "1.0.0"
+schedule: "25 */3 * * *"
+
+search_url: "https://www.hbggzyfwpt.cn/jyxxAjax/zfcg/cggg"
+
+response_type: json
+json_items: "cgggList"
+
+json_fields:
+  title: "bulletinTitle"
+  publish_time: "bulletinStartTime"
+  content: "bulletinContent"
+  purchaser: "purchaseProjectName"
+  guid: "guid"
+
+# 省级平台，覆盖范围恒定是湖北 —— 明确写死，不让抽取层从正文里猜
+static_fields:
+  province: "湖北"
+
+# 列表没给 URL，按前端规则拼
+url_template: "https://www.hbggzyfwpt.cn/jyxx/zfcg/cgggDetail?guid={guid}"
+
+# 列表接口本身就把正文带回来了，不必再打详情；
+# 但 deadlines 常写在正文里且表述自由，仍然值得再看一次全文税率更低
+fetch_detail: false
+
+post_data:
+  pageSize: "50"
+  area: ""
+  bulletinTitle: "{keyword}"
+  currentPage: "{page}"
+
+default_keyword: 法律
+keywords:
+  - 法律
+  - 顾问
+  - 律师
+  - 诉讼
+  - 司法辅助
+
+delay:
+  min: 1.5
+  max: 3.0
+
+pagination:
+  type: page_param
+  param: currentPage
+  max_pages: 2
+
+# ── 详情 ────────────────────────────────────────────────
+# 正文同名容器；仅在将来把 fetch_detail 打开时才会用到
+detail_container: "div.content, div.detail"
+
+detail_fields:
+  content:
+    selectors: ["div.content", "div.detail"]
+    extract: text

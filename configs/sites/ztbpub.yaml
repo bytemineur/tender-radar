@@ -1,0 +1,50 @@
+# 中国招标投标公共服务平台（ctbpsp.com / cebpubservice.com）
+#
+# 【实测结论 2026-10-22 —— 目前不可用，默认关闭】
+#   · bulletin.cebpubservice.com 启用了「瑞数」动态防护（Riversafe）。
+#     特征是返回一段混淆脚本：function M(){var GH=['XK392UY','D8a/Qnx',...]}
+#     它要求浏览器真实执行 JS 生成 cookie，纯 HTTP 与简单无头都会被挡。
+#   · 无头 Chrome 能过这一层，但列表是异步加载、分页参数经过签名，
+#     逆向属于「对抗反爬」，本项目刻意不做。
+#   · 结论：留作待办。要接它，正确路子是用 scripts/probe_site.py 在浏览器里
+#     旁听 XHR、找到真实 JSON 接口，而不是硬抠 DOM。
+#
+# 下面的选择器是早期按公开页面结构写的，未经实测，接入前务必先校准。
+
+id: ztbpub
+name: 中国招标投标公共服务平台
+base_url: https://ctbpsp.com
+enabled: false          # 瑞数防护，见上方说明；先在服务器上用 probe_site.py 验证
+mode: browser           # 必须走真浏览器，HTTP 一定被挡
+version: "0.9.0"
+schedule: ""
+
+search_url: >-
+  https://ctbpsp.com/#/bulletinList?searchType=1&pageIndex={page}&kw={keyword}
+
+default_keyword: 法律服务
+
+list_container: "div.bulletin-list > div.item, div.list-item"
+
+list_fields:
+  title:
+    selectors: ["a.title", "div.title", "a"]
+    extract: text
+  url:
+    selectors: ["a"]
+    extract: "attr:href"
+  publish_time:
+    selectors: ["span.date", "div.date"]
+    extract: text
+    regex: "\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}"
+
+detail_container: "div.detail-content"
+detail_fields:
+  content:
+    selectors: ["div.detail-content"]
+    extract: html
+
+pagination:
+  type: page_param
+  param: pageIndex
+  max_pages: 3

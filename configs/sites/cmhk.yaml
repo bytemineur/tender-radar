@@ -1,0 +1,207 @@
+# 招商局集团电子招标采购交易网 dzzb.ciesco.com.cn —— 央企采购平台
+#
+# 【实测结论 2026-10-25】
+#   · 门户是 **Nuxt 3 SPA**，首页 HTML 是空壳（`/home/_payload.json` 返回
+#     `[{"data":1,...}]`，一个公告都没有），数据全靠客户端 XHR。
+#     真实接口：**POST /zsj-menhu-web/gonggao/pageQuery**。
+#   · ⚠️ **接口有签名校验**，这是本站唯一的硬骨头：
+#       头 `X-Timestamp`  = 当前毫秒时间戳
+#       头 `X-Authorization` = md5( 字符排序→反序→拼接 (时间戳 + URL末段 + secret) )
+#       头 `domainInfo`   = {"domainGuid":"c7a6ea87-..."}
+#       头 `loginflag`    = -1
+#     签名不对一律回 `sign.validation.failed`，而且**与时间戳强绑定**——
+#     拿两分钟前抓到的签名配新时间戳，照样失败。
+#     算法在 `_nuxt/Bbq6RR9c.js` 里，被 base64 塞进 `fs` 变量后 eval，
+#     函数是 `addSignForRequestHeader`。secret 取自
+#     `GET /zsj-menhu-web/portalDomain/getTemplateConfigByDomain` 的
+#     `data.templateConfig`（= "92d58439-...-78"，每个域名固定）。
+#     本项目为此给采集器加了 `sign_secret` / `sign_url_part` 两个字段
+#     + headers 里的 `{now_ms}` / `{sign}` 占位符。
+#     如果哪天签名开始失败，第一件事是重新取一次 templateConfig 看它有没有变。
+#   · ✅ **关键词搜索可用**，参数叫 **`keyWord`**（大写 W）。
+#     注意别试 ggName / keyword / title / searchKey —— 这些传了不报错、
+#     totalCount 也不变，会误判成"站点不支持搜索"。
+#     命中：法律 773 / 法律顾问 313 / 律师 223 / 纠纷 168 / 诉讼 126 / 仲裁 21。
+#   · ⚠️ `gongGaoPageConfigDtoList` **必须传**，缺了直接回"系统错误"。
+#     它是按集团分组的单位清单（招商局主体 30 个单位 + 中国南山 9 + 南光 11 + …）。
+#     只传第 1 组也能跑（total 773 vs 780，差 7 条），这里把 5 组都带上求全。
+#     这组配置是从浏览器请求里原样拷的，别手改里头的单位码。
+#   · `pageSize` **只能是 12 或 15**（20/24/30/36/48 全部回"非法请求参数"）。
+#     这里用 15（交易信息页自己用的就是 15）。
+#   · 列表字段很全：`ggName` 标题、`zbrName` **采购人**、`xmBH` 项目编号、
+#     `jieZhiTime` **截止时间**、`ggStartTime` 发布时间（均为毫秒戳）。
+#     所以 **`fetch_detail: false`** —— 详情页
+#     `/zsj-portal/ggDetail?ggGuid=xxx` 是同一个 Nuxt 壳，
+#     正文要走另一个同样带签名的接口，成本不值。
+#   · 结果**按发布时间倒序**：「法律」第 1 页 08-17~10-22、第 2 页 07-20~08-11、
+#     第 3 页 05-18~07-17 —— 每页约跨 2 个月。所以 3 页就能兜住半年，
+#     配每 4 小时一轮绰绰有余。
+#   · `province` / `city` / `area` 是**数字地区码**不是名称（如 province=12），
+#     没有公开码表，不做映射，省份交给抽取层从标题猜（标题多带公司名里的地市）。
+#   · 刻意不收「合规」（126 条）：实测全是「合规门户系统」「APP 隐私合规检测」
+#     这类信息化项目，加进来只会把 IT 采购错判成法律服务。
+#     「法律服务」309 条与「法律」高度重叠，也不重复收。
+#
+# 与其他源的分工：招商局是**交通 + 金融 + 地产**综合央企
+# （中外运、招商轮船、招商证券、招商积余、招商蛇口、辽港集团…），
+# 与 already 接入的 sgcc（电网）/ csg（电网）/ datang（电力）/ chinapost（邮政）
+# 行业完全错开。法律类需求真实：常年法律顾问、物业费催缴、诉讼催收、
+# 仲裁案专家论证——**物业费催缴和应收账款催收是其他央企源没有的独有类型**。
+
+id: cmhk
+name: 招商局集团电子招标采购交易网
+base_url: https://dzzb.ciesco.com.cn
+enabled: true
+mode: http
+version: "1.0.0"
+schedule: "55 */4 * * *"
+
+# 列表接口（JSON，POST）
+search_url: "https://dzzb.ciesco.com.cn/zsj-menhu-web/gonggao/pageQuery"
+response_type: json
+json_items: "data.list"
+post_json: true
+
+# ── 请求头签名 ────────────────────────────────────────────────
+# secret 取自 getTemplateConfigByDomain 的 data.templateConfig，每个域名固定。
+# sign_url_part 取接口路径末段（pageQuery），与前端算法一致。
+sign_secret: "92d58439-e6aa-42ff-b06a-4d4379a4b36c-78"
+sign_url_part: "pageQuery"
+
+headers:
+  Referer: "https://dzzb.ciesco.com.cn/zsj-portal/trade-infomation"
+  loginflag: "-1"
+  domainInfo: '{"domainGuid":"c7a6ea87-efbe-77ca-f2d9-0a6955eaef62"}'
+  X-Timestamp: "{now_ms}"
+  X-Authorization: "{sign}"
+
+post_data:
+  pageNum: "{page}"
+  pageSize: 15
+  total: 0
+  xinXiGuanLiType: "1"      # 交易信息
+  gongGaoType: "1"          # 采购公告
+  jiTuanId: ""
+  zbFangShi: ""             # 采购方式，留空=全部
+  xmLeiXing: ""             # 项目类型，留空=全部
+  danWeiGuid: ""
+  keyWord: "{keyword}"
+  needErJiDanWei: 1
+  # 下面这一大块是必需的：缺了服务端回「系统错误」。
+  # 内容是从浏览器请求里原样拷的单位分组清单。
+  gongGaoPageConfigDtoList:
+  - yeWuLeiXing: 4,1,2,5,3
+    jinDuFanWeis:
+    - qiyesuoshudanwei01
+    - qiyesuoshudanwei02
+    - qiyesuoshudanwei03
+    - qiyesuoshudanwei04
+    - qiyesuoshudanwei05
+    - qiyesuoshudanwei06
+    - qiyesuoshudanwei07
+    - qiyesuoshudanwei08
+    - 618f9ddc-ee3d-476a-bb23-eb72b2476641
+    - qiyesuoshudanwei10
+    - qiyesuoshudanwei11
+    - qiyesuoshudanwei15
+    - qiyesuoshudanwei18
+    - qiyesuoshudanwei19
+    - qiyesuoshudanwei201710111002
+    - qiyesuoshudanwei21
+    - qiyesuoshudanwei22
+    - qiyesuoshudanwei20190409
+    - qiyesuoshudanwei17
+    - 18d30b37-11be-4955-82a9-27507742czhy
+    - qiyesuoshudanwei20201229
+    - qiyesuoshudanwei20210610
+    - qiyesuoshudanwei36
+    - qiyesuoshudanwei37
+    - qiyesuoshudanwei20240118
+    - qiyesuoshudanwei20240228
+    - qiyesuoshudanwei201711101702
+    - qiyesuoshudanwei20250630
+    - qiyesuoshudanwei20231031
+    - qiyesuoshudanwei20250612
+    jinDuFanWeiType: 3
+    needErJiDanWei: 1
+  - yeWuLeiXing: 1,2,3,4,5
+    jinDuFanWeis:
+    - qiyesuoshudanwei27
+    - qiyesuoshudanwei24
+    - qiyesuoshudanwei25
+    - qiyesuoshudanwei30
+    - qiyesuoshudanwei31
+    - qiyesuoshudanwei32
+    - qiyesuoshudanwei33
+    - qiyesuoshudanwei34
+    - qiyesuoshudanwei35
+    jinDuFanWeiType: 3
+    needErJiDanWei: 1
+  - yeWuLeiXing: 1,2,3,4,5
+    jinDuFanWeis:
+    - qiyesuoshudanwei38
+    - qiyesuoshudanwei45
+    - qiyesuoshudanwei44
+    - qiyesuoshudanwei42
+    - qiyesuoshudanwei41
+    - qiyesuoshudanwei40
+    - qiyesuoshudanwei557
+    - qiyesuoshudanwei560
+    - qiyesuoshudanwei556
+    - qiyesuoshudanwei555
+    - qiyesuoshudanwei559
+    jinDuFanWeiType: 3
+    needErJiDanWei: 1
+  - yeWuLeiXing: 4,2,1,5
+    jinDuFanWeis:
+    - qiyesuoshudanwei46
+    jinDuFanWeiType: 3
+    needErJiDanWei: 1
+  - yeWuLeiXing: 1,2,3,4,5
+    jinDuFanWeis:
+    - qiyesuoshudanwei47
+    jinDuFanWeiType: 3
+    needErJiDanWei: 1
+
+json_fields:
+  title: ggName
+  # 发布时间（毫秒戳）。parse_list_json 的 _normalize_ms_timestamp 会转日期串。
+  publish_time: ggStartTime
+  # 采购人（招标人）
+  purchaser: zbrName
+  # 截止时间（毫秒戳）
+  deadline: jieZhiTime
+  # 项目编号。注意 Tender 模型目前没有存编号的字段，抓到也不落库
+  # （与 chinapost 的 code 同理），留着是将来加字段时直接可用。
+  code: xmBH
+  # 只为拼详情页链接
+  gguid: ggGuid
+
+# 列表接口不给详情 URL，按站点自己的 SPA 路由拼。
+url_template: "https://dzzb.ciesco.com.cn/zsj-portal/ggDetail?ggGuid={gguid}"
+
+default_keyword: 法律
+keywords:
+  - 法律
+  - 法律顾问
+  - 律师
+  - 诉讼
+  - 纠纷
+  - 仲裁
+# 「合规」126 条但全是 IT 合规系统类，不收；
+# 「法律服务」309 条与「法律」高度重叠，重复收只会多一倍请求。
+
+delay:
+  min: 1.5
+  max: 3.0
+
+pagination:
+  type: page_param
+  param: pageNum
+  page_size: 15
+  # 倒序，每页约跨 2 个月，3 页 ≈ 半年。配每 4 小时一轮足够。
+  max_pages: 3
+
+# 详情页是 Nuxt 壳，正文要另一个同样带签名的接口才拿得到，
+# 而列表字段（采购人 / 截止 / 编号）已经够用，所以不抓详情。
+fetch_detail: false

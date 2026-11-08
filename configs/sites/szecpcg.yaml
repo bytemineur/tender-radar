@@ -1,0 +1,71 @@
+# 华润集团守正电子招标平台（采购公告频道）www.szecp.com.cn
+#
+# 与 szecp.yaml（招标公告 26909）同一站点的**另一个频道**，接口完全同构，
+# 只是 channelIds 不同。为什么拆成两个配置而不是一个：
+#   `channelIds` **不支持逗号传多个**（传 "26909,26915" 实测只返回 26909 的结果，
+#   返回体里 channelId 全是 26909），所以只能一个频道一个站点。
+#
+# 【为什么要接这个频道】
+#   采购公告的法律类命中是招标公告的 **5~10 倍**：
+#     本频道 26915：法律 185 / 法律顾问 77 / 诉讼 77 / 律师 39 / 纠纷 35 / 仲裁 9
+#     招标频道 26909：法律 16 / 法律顾问 4 / 纠纷 4 / 诉讼 2 / 仲裁 1 / 律师 1
+#   而且品类更贴法律服务：常年法律顾问、诉讼委托代理、
+#   追偿权纠纷案件执行代理、诉讼（仲裁）法律服务及非诉法律服务。
+#
+# 【两处与招标频道不同的地方】
+#   · 总量大得多：300,060 条（招标频道 19,828 条）。
+#     但关键词过滤后「法律」也只有 185 条，pageSize=100 → 2 页能兜住。
+#   · 排序同样按 publishDate 倒序，新的在最前面，翻页抓旧数据意义不大。
+#
+# 其余实测结论（无反爬 / 关键词参数叫 title / pageSize 上限 200 /
+# 采购人从标题抠 / 不收合规）与 szecp.yaml 完全一致，不重复写。
+
+id: szecpcg
+name: 华润守正电子招标平台·采购公告
+base_url: https://www.szecp.com.cn
+enabled: true
+mode: http
+version: "1.0.0"
+schedule: "20 */4 * * *"
+
+# 唯一区别就是 channelIds=26915。
+# `format=json` 同样不能去掉（原因见 szecp.yaml：不带它这个接口会随缘返回 XML）。
+search_url: "https://www.szecp.com.cn/rcms-external-rest/content/getSZExtData?channelIds=26915&pageNo={page}&pageSize=100&title={keyword}&format=json"
+response_type: json
+json_items: "data.data"
+
+headers:
+  Referer: "https://www.szecp.com.cn/first_cggg/index.html"
+
+json_fields:
+  title: title
+  publish_time: publishDate
+  deadline: deadline
+  url: url
+  purchaser: title
+  code: number
+
+json_field_regex:
+  purchaser: '^([\u4e00-\u9fa5A-Za-z0-9（）()·\-]{4,28}?(?:股份有限公司|有限责任公司|有限公司|集团公司|公司|医院|研究院|大学|中心|局|委员会))'
+
+default_keyword: 法律
+keywords:
+  - 法律
+  - 法律顾问
+  - 律师
+  - 诉讼
+  - 纠纷
+  - 仲裁
+
+delay:
+  min: 1.0
+  max: 2.0
+
+pagination:
+  type: page_param
+  param: pageNo
+  page_size: 100
+  # 「法律」185 条 → 2 页正好兜住；其余关键词都更少。
+  max_pages: 2
+
+fetch_detail: false

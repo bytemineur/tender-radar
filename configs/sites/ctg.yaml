@@ -1,0 +1,104 @@
+# 中国三峡集团电子采购平台 · 招标公告（eps.ctg.com.cn）—— 已实测可用（纯 HTTP）
+#
+# 【实测结论 2026-10-31】
+#   · **央企官方平台**（中国长江三峡集团），全站服务端渲染的静态 CMS，
+#     纯 GET、无登录、无 cookie、无反爬，是所有新接的央企源里最好接的一个。
+#
+#   · 栏目路径（从首页 href 抠出来的，注意是随机串不是数字）：
+#       1ywgg1 招标公告   ← 本文件
+#       2ywgg1 采购公告   ← 见 ctgcg.yaml
+#       1ywgg3/1ywgg4 中标候选人公示 / 中标结果（不采）
+#
+#   · 翻页是 `index.htm?pageNo={n}`（1 基，实测第 1/3 页首条不同）。
+#     **注意两个坑**：
+#       ① 页面上的「1 2 3」分页按钮是 `javascript:;`，纯 JS 翻页，
+#          所以别去找 next_link，直接拼 pageNo 参数；
+#       ② `index_1.htm` 这种静态分页名**不存在**（返回的是首页内容，
+#          首条与第 1 页完全相同，看起来像成功其实是没翻页）。
+#
+#   · 列表项在 `ul#list1 > li`：标题在 `<a title>`（**取 attr:title，
+#     不要取 text**——text 里混着 <i> 图标和空的采购方式 <em>），
+#     链接是 `<a href>` 相对路径，日期在第二个 `<em>` 里（第一个 <em> 是
+#     空的采购方式占位），所以用正则从整行文本里抠 YYYY-MM-DD 最稳。
+#
+#   · **没有站内检索**。`search.jspx` 一律 404（首页那个搜索框的 action
+#     指向 404 路径，应该是历史遗留），所以走 local_filter 拉全量本地筛。
+#     代价是每轮 5 次请求只换回 50 条，法律类命中率和 chnenergy 一个量级
+#     （很低）；收益是央企法律服务采购本来就是低频高价，漏一条都可惜。
+#
+#   · 详情页值得取（`div.main-text` 正文里写着招标人、招标代理机构、
+#     投标截止时间）。三峡的公告正文排版规范，抽取层能直接吃。
+#
+# 业务价值：三峡集团及长江电力、三峡国际招标等二级单位的法律服务项目。
+
+id: ctg
+name: 三峡集团电子采购平台·招标公告
+base_url: https://eps.ctg.com.cn
+enabled: true
+mode: http
+version: "1.0.0"
+schedule: "35 */4 * * *"
+
+# 1ywgg1 = 招标公告；翻页靠 pageNo 查询参数
+search_url: "https://eps.ctg.com.cn/cms/channel/1ywgg1/index.htm?pageNo={page}"
+
+response_type: html
+
+list_container: "ul#list1 > li"
+
+list_fields:
+  title:
+    selectors:
+      - "a"
+    # 取 title 属性：text 里混着图标标签和空的采购方式占位
+    extract: attr:title
+  url:
+    selectors:
+      - "a"
+    extract: attr:href
+  publish_time:
+    selectors:
+      - "a"
+    extract: text
+    regex: "(\\d{4}-\\d{2}-\\d{2})"
+
+static_fields:
+  province: ""
+  industry: "法律服务"
+  notice_type: "招标公告"
+
+# 无站内搜索 → 拉全量本地筛
+local_filter: true
+default_keyword: 法律
+keywords:
+  - 法律
+  - 法律顾问
+  - 法律服务
+  - 诉讼
+  - 律师
+  - 法务
+
+delay:
+  min: 2.0
+  max: 4.0
+
+pagination:
+  type: page_param
+  param: page
+  page_size: 10
+  # 实测翻到第 20 页（200 条）**一条法律类都没有**——三峡的法律服务采购
+  # 几乎全走采购频道（ctgcg），招标频道这边是工程/设备为主。
+  # 所以这里只翻 10 页当保险，深翻纯属浪费请求；主战场在 ctgcg。
+  max_pages: 10
+
+# 正文里有招标人和截止时间，值得逐条取
+fetch_detail: true
+detail_limit: 20
+detail_container: "div.main-text"
+detail_fields:
+  content:
+    selectors:
+      - "div.main-text"
+    extract: text
+
+lookback_days: 0

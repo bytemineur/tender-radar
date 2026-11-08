@@ -1,0 +1,120 @@
+# 全国公共资源交易平台（ggzy.gov.cn）—— 已实测可用（纯 HTTP，无需浏览器）
+#
+# 【实测结论 2026-10-22】
+#   · 列表页 dealList.html 是 Vue 渲染，直接抠 DOM 拿不到数据；
+#     但它背后有一个干净的 JSON 接口，POST 表单即可调用，无需登录、无需 cookie。
+#   · 关键词参数是 FINDTXT（不是 searchText / keyword），实测
+#     「法律服务」可把 total 从 1000 降到 16，确认有效。
+#   · 响应里字段很全：标题、发布时间、截止时间、省份、行业、正文 bodyContent 都有，
+#     因此**不需要再逐条取详情**——这是它比 ccgp 更好用的地方。
+#   · 频控比 ccgp 宽松，但接口有深分页上限（total 封顶 1000），
+#     所以按时间片滚动抓（每次 3~7 天），不要指望翻到底。
+#
+# 业务分类（DEAL_CLASSIFY）：
+#   01 工程建设    02 政府采购  ← 法律服务主战场
+#   03 土地使用权  04 矿业权   05 国有产权
+#
+# 信息类型（informationTypeText，服务端已给出中文，直接入库）：
+#   采购公告 / 更正事项 / 交易结果公示 / 采购合同 / 招标资审公告 ...
+
+id: ggzy
+name: 全国公共资源交易平台
+base_url: https://www.ggzy.gov.cn
+enabled: true
+mode: http
+version: "1.0.0"
+schedule: "15 */3 * * *"
+
+# JSON 接口，不是 HTML 页面
+search_url: "https://www.ggzy.gov.cn/information/pubTradingInfo/getTradList"
+
+response_type: json
+json_items: "data.records"
+
+json_fields:
+  title: "title"
+  url: "url"
+  publish_time: "publishTime"
+  deadline: "deadline"
+  province: "provinceText"
+  industry: "industryTypeText"
+  notice_type: "informationTypeText"
+  content: "bodyContent"
+
+# POST 表单。{page} {keyword} {start} {end} 会被渲染，
+# 日期格式 YYYY-MM-DD
+post_data:
+  DEAL_CLASSIFY: "02"      # 02 = 政府采购
+  SOURCE_TYPE: "1"
+  DEAL_TIME: "02"
+  TIMEBEGIN: "{start}"
+  TIMEEND: "{end}"
+  PAGENUMBER: "{page}"
+  FINDTXT: "{keyword}"
+
+# 关键词是招标雷达的核心。
+# 「法律顾问」「诉讼代理」「司法辅助」的公告标题互不包含，
+# 只搜「法律服务」会漏掉大半线索，所以一次采集把这组词依次跑一遍，
+# 结果由去重层合并（同一标题+发布日+采购人只留一条）。
+default_keyword: 法律服务
+keywords:
+  - 法律服务
+  - 法律顾问
+  - 诉讼代理
+  - 司法辅助
+  - 律师服务
+  - 法律援助
+
+# 列表 bodyContent 已能抽到预算，但截止时间经常缺，
+# 取一次详情把 deadline 补齐（纯 HTTP，代价小）
+fetch_detail: true
+
+# 接口比网页宽松，仍保持礼貌间隔
+delay:
+  min: 1.5
+  max: 3.0
+
+pagination:
+  type: page_param
+  param: PAGENUMBER
+  max_pages: 3         # 6 个检索词 × 3 页 = 单轮最多 18 次请求
+
+# ── 详情（fetch_detail=true 时才走）────────────────────────
+# 坑：列表接口给的 url 指向「关联公告」页（/a/ 路径），那一页只有
+# 「采购/资审公告 | 中标公告 | 采购合同 | 更正事项」四个 tab，
+# 正文并不在里面；真正的正文在 onclick="showDetail(...,'/information/deal/html/b/...')"
+# 指向的 /b/ 路径上。所以这里要二次跳转。
+detail_url_from:
+  selectors:
+    - "#div_0201 ul.fully_list a"   # 优先取「采购/资审公告」，它的截止时间最有用
+    - "ul.fully_list a"
+  extract: "attr:onclick"
+  regex: "(/information/deal/html/b/[^'\"]+\\.html)"
+
+detail_container: "div.detail_content, div.detail"
+
+detail_fields:
+  content:
+    selectors:
+      - "div.detail_content"
+      - "div.detail"
+    extract: text
+  deadline:
+    selectors:
+      - "div.detail_content"
+      - "div.detail"
+    extract: text
+    regex: "(?:递交截止时间|投标截止时间|响应截止时间|报价截止时间|开标时间)[^0-9]{0,24}(\\d{4}[-/年.]\\d{1,2}[-/月.]\\d{1,2})"
+  budget:
+    selectors:
+      - "div.detail_content"
+      - "div.detail"
+    extract: text
+    # 必须连单位一起匹配：只抓数字会把项目编号里的年份当金额
+    regex: "(?:预算金额|采购预算|项目预算|最高限价)[^0-9]{0,12}[\\d,\\.]+\\s*(?:亿元|万元|万|元)"
+  purchaser:
+    selectors:
+      - "div.detail_content"
+      - "div.detail"
+    extract: text
+    regex: "(?:采购人|采购单位|招标人|采购机关)[^\\u4e00-\\u9fa5]{0,4}([\\u4e00-\\u9fa5（）()、A-Za-z0-9]{4,40})"

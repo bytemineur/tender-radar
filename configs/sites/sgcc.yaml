@@ -1,0 +1,134 @@
+# 国家电网电子商务平台（电工交易专区）sgccetp.com.cn —— 央企采购平台
+#
+# 【实测结论 2026-10-24】
+#   · 门户是 DevExtreme 写的 SPA（hash 路由），首页 HTML 挂了瑞数动态防护
+#     （$_ts、meta content="k_mvd7.."），**HTML 页面本身必须浏览器才能看**。
+#     但 `/ecpwcmcore/**` 这一路 JSON 接口不在防护范围内，
+#     裸 httpx POST 直接打得通，不需要浏览器、不需要 cookie、不需要签名参数。
+#     所以 mode 仍是 http —— 别被首页那堆混淆脚本吓退。
+#   · 列表接口：POST /ecpwcmcore/index/noteList，body 必须是 JSON
+#     （表单编码服务端不认）。关键参数：
+#       key               标题关键词，按子串匹配
+#       index / size      1 基页码 / 每页条数（页面上一页 20 条）
+#       firstPageMenuId   "全部公告" = 20180502001
+#     count 字段是全库命中数（无关键词时 53 万+），与分页无关，别拿它算页数。
+#   · 结果**按发布时间倒序**：每个关键词的第一页就是该词最新的 20 条。
+#     所以增量靠「每轮重拉前两页 + 去重」即可，不需要时间窗口参数
+#     （接口也没有日期参数）。
+#   · 列表字段里 openbidTime 是 13 位毫秒戳（开标时间），
+#     正在采购的公告才有，已出结果的公告是 null。把它映射到 deadline，
+#     parse_list_json 里的毫秒戳归一化会自动转成日期字符串。
+#   · 详情页是 SPA 路由 #/doc/{doctype}/{id}_20180502001_{firstPageDocId}/old，
+#     HTTP 抓不到正文（只有壳）。正文数据在
+#       POST /ecpwcmcore/index/getNoticeBid
+#     请求体是**一个裸 JSON 字符串**（就是公告 id），包成对象一律回
+#     {"successful":false,"resultHint":"操作异常！"} —— 所以用 detail_post_raw
+#     而不是 detail_post_data（这个能力就是为它加的）。
+#     详情补回来的关键字段：OPENBID_TIME（开启应答/开标时间）、
+#     BIDBOOK_BUY_END_TIME（采购文件获取截止）、PUBLISH_ORG_NAME、BID_AGT。
+#     注意**没有预算字段**——国网公告本来就不披露预算，取到详情也是空的。
+#
+# 与其他源的分工：它覆盖国家电网及各省电力公司、直属产业单位
+# （南瑞、许继、智芯微、英大系…）的服务类采购，是继 csg（南方电网）之后
+# 第二个央企电网系入口。法律类线索密度不如 plap / cfcpn，但胜在
+# 单位真实、采购频繁、接口稳定。
+
+id: sgcc
+name: 国家电网电子商务平台
+base_url: https://sgccetp.com.cn
+enabled: true
+mode: http
+version: "1.0.0"
+schedule: "50 */3 * * *"
+
+# 列表接口（JSON，POST）
+search_url: "https://sgccetp.com.cn/ecpwcmcore/index/noteList"
+response_type: json
+json_items: "resultValue.noteList"
+post_json: true
+
+post_data:
+  firstPageMenuId: "20180502001"   # 全部公告
+  homePageType: "1"
+  index: "{page}"                  # 1 基页码
+  size: 20
+  key: "{keyword}"
+  orgId: ""
+  orgName: ""
+  purOrgCode: ""
+  purOrgStatus: ""
+  purType: ""
+
+# 接口校验来源页，缺 Referer 容易被当成跨站调用
+headers:
+  Referer: "https://sgccetp.com.cn/portal/"
+  Origin: "https://sgccetp.com.cn"
+
+json_fields:
+  title: title
+  publish_time: noticePublishTime
+  purchaser: publishOrgName
+  agency: bidAgt
+  # 开标时间（毫秒戳，已出结果的公告为 null）。映射成 deadline 后
+  # 由 parse_list_json 的 _normalize_ms_timestamp 转成日期字符串。
+  deadline: openbidTime
+  # 下面三个只为拼详情页链接用
+  src_id: id
+  doctype: doctype
+  doc_id: firstPageDocId
+
+# 列表接口不给详情页 URL，按站点自己的 hash 路由拼出来给用户点。
+# 20180502001 是「全部公告」的菜单 id，站点生成的链接里也是这个值。
+url_template: "https://sgccetp.com.cn/portal/#/doc/{doctype}/{src_id}_20180502001_{doc_id}/old"
+
+default_keyword: 法律
+# 按实测命中数挑的词，不是拍脑袋列的：
+#   法律 635 / 法律顾问 287 / 法律服务 234 / 诉讼 55 / 律师 33 / 纠纷 16 / 仲裁 17
+# 「法务」「律所」实测 0 条，别加。
+# 「合规」虽有 125 条，但全是「合规性检查」「合规监测平台」这类信息化项目，
+# 加进来只会把 IT 项目错判成法律服务（guess_industry 的词典里 合规 归法律），
+# 所以刻意不收。纠纷/仲裁 命中数虽少，但正是「诉讼案件代理」这类最对口的线索。
+keywords:
+  - 法律
+  - 法律顾问
+  - 诉讼
+  - 律师
+  - 纠纷
+  - 仲裁
+
+delay:
+  min: 1.5
+  max: 3.0
+
+pagination:
+  type: page_param
+  param: index
+  max_pages: 2
+  page_size: 20
+
+# ── 详情：走接口，请求体是裸字符串 ────────────────────────
+fetch_detail: true
+fetch_detail_default: true
+# 每轮最多取几条详情。只给「本轮新增」的条目补（已入库的会被去重挡在前面），
+# 所以稳态运行下每轮实际请求是个位数；放宽到 40 是为了让首轮回灌时
+# 截止时间这类关键字段尽量补全，不至于整源只剩列表字段。
+detail_limit: 40
+detail_url: "https://sgccetp.com.cn/ecpwcmcore/index/getNoticeBid"
+detail_post_raw: "{src_id}"
+# getNoticeBid 只服务招标/变更类（doci-bid / doci-change）。
+# 中标、成交、候选人公示都是 doci-win，打过去一律 {"successful":false,"resultHint":"SYS001"}
+# ——实测 40 次里 25 次白打。这类公告本来也没有截止时间，直接跳过。
+detail_skip_if:
+  doctype: "doci-win"
+detail_json_items: "resultValue.notice"
+detail_json_fields:
+  # 项目介绍常为空，取到就是赚到
+  content: PRJ_INTRODUCE
+  # 开标时间优先，没有则退到「采购文件获取截止时间」
+  deadline: "OPENBID_TIME|BIDBOOK_BUY_END_TIME"
+  purchaser: PUBLISH_ORG_NAME
+  agency: BID_AGT
+  contact: CONTACT
+  tel: TEL
+  addr: OPENBID_ADDR
+  code: PURPRJ_CODE

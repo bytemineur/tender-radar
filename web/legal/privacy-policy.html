@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>个人信息保护政策 | 招标雷达</title>
+<meta name="description" content="招标雷达个人信息保护政策">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%230f6e5d'/><circle cx='16' cy='16' r='3' fill='white'/><circle cx='16' cy='16' r='8' fill='none' stroke='white' stroke-width='1.6' opacity='.6'/></svg>">
+
+<!-- 与主体界面一致：首帧前定好主题，默认深色 -->
+<script>
+(function () {
+  try {
+    var pref = localStorage.getItem("tr-theme") || "dark";
+    var dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    var mode = pref === "auto" ? (dark ? "dark" : "light") : pref;
+    document.documentElement.setAttribute("data-theme", mode);
+    document.documentElement.style.colorScheme = mode;
+  } catch (e) {}
+})();
+</script>
+
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="legal.css">
+</head>
+<body>
+
+<main class="doc-wrap">
+  <div class="doc-top">
+    <a class="doc-back" href="../">← 返回招标雷达</a>
+    <nav class="doc-switch">
+      <a href="user-agreement.html">用户协议</a>
+      <a class="on" href="privacy-policy.html">隐私政策</a>
+    </nav>
+  </div>
+
+  <h1>招标雷达个人信息保护政策</h1>
+  <div class="doc-meta">版本 v1.1 · 发布日期 2026 年 10 月 23 日 · 生效日期 2026 年 10 月 23 日</div>
+
+  <div class="doc-note">
+    您的信任对<span class="term">深圳易诉达法律服务有限公司</span>（以下简称「我们」）非常重要。
+    本政策说明本服务如何处理信息。<strong>为方便理解，先说结论：访问首页无需提供任何信息；
+    进入看板、雷达与来源管理需要登录，我们只保存您的<u>邮箱地址</u>与最基本的登录记录，
+    不收集手机号、身份证件、通讯录、位置或支付信息，也不接入任何第三方广告或行为追踪服务。</strong>
+  </div>
+
+  <h2>一、我们收集哪些信息</h2>
+  <h3>1.1 您主动提供的信息</h3>
+  <p><strong>仅邮箱地址。</strong>本服务采用「邮箱直登」方式登录，不设密码，
+  公测期间不发送验证邮件。您登录时填写的邮箱地址将被保存，用于识别账号、
+  展示昵称（默认取邮箱 @ 前部分）以及在必要时向您发送服务通知。
+  <strong>我们不要求也不收集姓名、手机号、身份证件、公司名称、地址或支付信息。</strong></p>
+  <p>需特别说明：<strong>当前登录环节不校验邮箱归属，任何填写他人邮箱的人均可登录该邮箱对应的账号</strong>。
+  请勿在他人可接触的设备上保持登录状态；如发现账号被他人使用，请立即联系我们，
+  我们可协助注销该账号并清除其浏览记录。待公测结束后我们将启用邮箱验证，届时本政策同步更新。</p>
+  <p>若未来开通付费功能，支付信息将由具备资质的支付机构直接处理，
+  <strong>本服务不经手、不存储您的银行卡号或支付账户密码</strong>。届时本政策将同步更新。</p>
+
+  <h3>1.2 使用过程中产生的信息</h3>
+  <p>为了解服务的使用情况并改进产品，我们会记录以下信息：</p>
+  <ul>
+    <li><strong>账号信息</strong>：邮箱地址、昵称、账号角色、登录次数、最近登录时间与登录 IP；</li>
+    <li><strong>页面浏览记录</strong>：访问的页面路径、页面标题、访问时间、来源页面（Referer）
+      及推广参数（UTM）。用于统计每日浏览量、访客数与访问来源；</li>
+    <li><strong>匿名访客标识</strong>：一个随机生成的字符串，保存在您浏览器的 localStorage
+      （键名 <code>tr-vid</code>），仅用于区分不同访客以统计访客数（UV），
+      <strong>不包含任何个人信息，也不用于跨站追踪</strong>；</li>
+    <li><strong>浏览器标识</strong>：User-Agent，用于兼容性排查；</li>
+    <li><strong>IP 地址的哈希值</strong>：<strong>我们不保存 IP 原文</strong>，仅保存其单向哈希，
+      用于识别异常请求与防止滥用，<strong>无法还原为您的实际 IP</strong>；</li>
+    <li><strong>界面偏好</strong>：您选择的主题（深色 / 浅色 / 跟随系统），键名 <code>tr-theme</code>，
+      保存在浏览器本地。</li>
+  </ul>
+  <p>上述浏览记录<strong>仅用于聚合统计</strong>（例如「今日有多少人访问」），
+  我们不会据此对您进行用户画像、个性化推荐或定向营销。</p>
+
+  <h3>1.3 公告原文中出现的联系方式</h3>
+  <div class="doc-note">
+    本服务采集的政府采购与招标公告原文中，<strong>可能包含采购人联系人的姓名、办公电话与地址</strong>。
+    这些信息是来源网站<strong>为便于供应商联系业务而主动公开的业务信息</strong>，
+    我们按原文原样展示，<strong>仅用于您在业务场景下联系采购方，不会用于营销、画像或对外提供</strong>。
+    如您认为其中涉及您的个人信息且不愿被展示，请通过本政策末尾的联系方式告知我们，
+    <strong>我们将在核实后删除或屏蔽相关字段</strong>。
+  </div>
+
+  <h2>二、Cookie 与本地存储</h2>
+  <p>本服务<strong>不使用用于广告或行为分析的 Cookie，也不接入第三方统计脚本</strong>。
+  浏览器本地仅保存三项，均属于维持登录与界面功能所必需的存储：</p>
+  <ul>
+    <li><code>tr-token</code>：登录凭证，用于保持登录状态。退出登录时会立即清除，
+      同时服务端的会话记录也随之失效；</li>
+    <li><code>tr-vid</code>：上文所述的匿名访客标识，仅用于统计访客数；</li>
+    <li><code>tr-theme</code>：主题偏好。</li>
+  </ul>
+  <p>您可以在浏览器设置中清除上述存储。清除后需要重新登录，页面恢复默认的深色外观，
+  其余功能不受影响。</p>
+
+  <h2>三、第三方服务</h2>
+  <p><strong>本服务前端不引入任何第三方 CDN、统计脚本、广告 SDK 或社交插件</strong>，
+  页面资源（含中国地图边界数据）全部由本服务自身提供，因此不存在向第三方泄露访问行为的情况。
+  <strong>当前公测阶段不发送任何邮件，因此不涉及邮件服务商。</strong>
+  未来启用邮箱验证码登录后，涉及第三方的环节为投递登录验证码邮件，
+  该服务商仅能接触到您的邮箱地址与邮件内容，届时我们会在本政策中载明其名称。
+  <strong>除此之外，我们不会将您的任何信息提供给第三方。</strong>
+  页面中包含指向各来源网站的原文链接，<strong>您点击后将离开本服务，
+  该等网站的个人信息处理行为适用其各自的隐私政策，与本站无关</strong>。</p>
+
+  <h2>四、我们如何共享、转让与公开披露</h2>
+  <p>4.1 <strong>共享</strong>：当前公测阶段不投递邮件，不涉及向邮件服务商提供邮箱地址。
+  我们不会向任何第三方共享您的信息。<strong>我们不会出售、出租您的邮箱地址或浏览记录。</strong></p>
+  <p>4.2 <strong>转让</strong>：我们不会转让您的个人信息给任何第三方。
+  如因合并、分立等原因确需转让，我们将告知您接收方的名称与联系方式，
+  并要求接收方继续受本政策约束。</p>
+  <p>4.3 <strong>公开披露</strong>：除依据法律法规规定或司法机关、监管部门的<b>强制性要求</b>外，
+  我们不会公开披露任何个人信息。<strong>您的邮箱不会出现在任何公开页面或用户列表中</strong>
+  （管理后台的用户列表仅对管理员可见）。</p>
+
+  <h2>五、我们如何保护信息安全</h2>
+  <p>我们在合理范围内采取与业务规模相匹配的安全措施，包括访问控制、传输加密（HTTPS）
+  与最小化的信息留存策略。但<strong>请您理解，任何安全措施都不可能做到百分之百无风险</strong>，
+  我们无法承诺绝对安全。</p>
+  <p>若不幸发生个人信息泄露等安全事件，我们将按法律法规要求<strong>及时启动处置并向监管部门报告，
+  同时以适当方式告知受影响的用户</strong>。</p>
+
+  <h2>六、私有化部署的说明</h2>
+  <p>本服务支持完全私有化部署。若您所在的机构自行部署了本服务，
+  <strong>该实例的运行日志、采集数据与访问行为由该机构作为管理者负责</strong>，
+  其处理行为适用该机构自身的管理规范与隐私政策。我们无法访问私有化部署实例中的任何数据。</p>
+
+  <h2>七、未成年人保护</h2>
+  <p>本服务面向机构与从业者的业务使用场景，不面向未成年人提供。
+  若您是未成年人，请在监护人陪同下阅读本政策并在其指导下使用。</p>
+  <p>若您是未成年人的监护人，对您所监护的未成年人的个人信息有疑问，
+  请通过本政策末尾的联系方式与我们联系。</p>
+
+  <h2>八、您的权利</h2>
+  <p>就本服务所涉信息，您有权<strong>查阅、更正、删除</strong>与您相关的信息，
+  或要求我们就本政策作出解释。具体包括：</p>
+  <ul>
+    <li><strong>查阅与更正</strong>：登录后可查看自己的账号信息（邮箱、昵称、登录记录）；</li>
+    <li><strong>注销账号</strong>：您可要求删除账号及由其产生的浏览记录。
+      账号删除后，与该账号关联的页面浏览记录中的用户标识将一并解除。
+      为满足法律要求，我们可能保留最小限度的必要记录；</li>
+    <li><strong>撤回同意</strong>：您可随时停止使用本服务并清除浏览器本地存储，
+      此后我们不再记录您的浏览行为。</li>
+  </ul>
+  <p>如本服务展示的公告原文中含有您的个人信息，您亦可要求我们删除或屏蔽。
+  <strong>我们将在核实身份与事实后 15 个工作日内处理并答复。</strong></p>
+
+  <h2>九、政策更新</h2>
+  <p>为提供更好的服务并符合法律法规要求，我们可能适时修订本政策。
+  <strong>未经您明确同意，我们不会削减您依据当前有效政策所享有的权利。</strong>
+  修订后的版本将在本页面公布，涉及重大变更时我们会在本服务显著位置提示。</p>
+
+  <h2>十、联系我们</h2>
+  <p>如您对本政策有任何疑问、意见、投诉或请求，可通过以下方式与我们联系：</p>
+  <ul>
+    <li>主体名称：<strong>深圳易诉达法律服务有限公司</strong></li>
+    <!-- TODO 上线前替换为真实联系邮箱与地址 -->
+    <li>联系邮箱：<strong>legal@yesuda.com</strong></li>
+    <li>联系地址：广东省深圳市</li>
+  </ul>
+  <p>我们将在收到您的请求后<b>尽快核实并处理</b>。</p>
+
+  <div class="doc-sign">
+    深圳易诉达法律服务有限公司<br>
+    2026 年 10 月 22 日
+  </div>
+
+  <div class="doc-foot">
+    <span>© 2026 深圳易诉达法律服务有限公司</span>
+    <span class="footer-sep">·</span>
+    <a href="user-agreement.html">用户协议</a>
+    <span class="footer-sep">·</span>
+    <a href="privacy-policy.html">隐私政策</a>
+    <span class="footer-sep">·</span>
+    <a href="../">返回招标雷达</a>
+  </div>
+</main>
+
+</body>
+</html>

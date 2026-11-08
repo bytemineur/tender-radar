@@ -1,0 +1,110 @@
+# 中国铁建物资采购网（cqzdt.toobiao.com）—— 已实测可用
+#
+# 【实测结论 2026-10-25】
+#   · ⚠️ 先说清楚它是什么：和中国中铁 crecg 一样，这是电力招标网（dlzb.com）
+#     按关键词归类汇总的**第三方聚合站**，不是中国铁建官方平台。
+#     （同站还有 /help/ 页面自述归属。）数据能反映中铁建各工程局
+#     （中铁建工、中铁建设、中铁十一~二十五局、港航局、大桥局…）的
+#     采购动态，但时效与完整性取决于聚合方，不要当官方口径用。
+#   · 技术门槛同样极低：Destoon CMS 静态页，纯 HTTP GET，
+#     不用登录、不用 cookie、不用浏览器，没有任何反爬。
+#   · **只能用 http，不能用 https**：该域的 TLS 握手直接失败
+#     （SSLV3_ALERT_HANDSHAKE_FAILURE），base_url 必须写成 http://。
+#     另外 www.cqzdt.toobiao.com 是 403，别加 www。
+#   · 列表字段只有标题 + 发布日期 + 详情链接，没有采购人、预算、截止时间。
+#
+#   · ⚠️ 第 1 页必须用 first_page_url 指向 /zhaobiao/，这是个坑：
+#     Destoon 惯例的 /zhaobiao/page-1.shtml 在本站会 301 跳到**站点首页**
+#     （不是栏目页！中国中铁 crecg 那边同名 URL 是跳栏目页，两边行为不同）。
+#     首页那块是「最新混合列表」，只有 20 条招标里的 16 条，
+#     少的 4 条（实测都是 10-23 的公告）**既不在首页也不在第 2、3 页**，
+#     不配 first_page_url 就会永久漏采。
+#
+#   · 分页 /zhaobiao/page-{n}.shtml，20 条/页，按发布日期倒序，共 500 页。
+#   · 发布量约 **67 条/天**（实测 20 页 = 400 条覆盖 6 天），
+#     只有中国中铁（200 条/天）的三分之一 —— 毕竟这是「物资采购」网。
+#   · **没有站内搜索**：搜索框 form 指向总站 dlzb.com/search/，
+#     本站 /search/、/search.php 均不可用。只能拉全量 + local_filter 本地筛标题。
+#   · **详情页抓不到**：列表链接指向 www.dlzb.com，阿里云 WAF
+#     （CF_APP_WAF + 滑块验证码），HTTP 与浏览器都过不去，和 crecg 同一堵墙。
+#     所以 fetch_detail 关掉，只存列表字段，链接留给用户自己点开看。别再试了。
+#
+# 栏目选择：只盯 /zhaobiao/（招标公告）。
+#   /zhongbiao/ 中标结果（已成交，无可投价值，链接是 d-zhongbiao-*.html）
+#   /gongcheng/ 与 /zhaobiao/ 内容完全重复，不要重复采
+#   /xunjia/ 询价，条目与 /zhaobiao/ 高度重叠
+#   /huowu/ 设备，更新极慢（实测最新只到 10-09，且混着 3 月的）
+#   /law/ 是法规库不是招标公告（内容停在 2019~2022），不要采
+
+id: crcc
+name: 中国铁建物资采购网
+base_url: http://cqzdt.toobiao.com
+enabled: true
+mode: http
+version: "1.0.0"
+# */3 的所有分钟档（0/5/10…55）都已被其他源占满，这里排每 4 小时的第 5 分钟。
+# 10 页 ≈ 3 天的发布量，配每 4 小时一轮窗口重叠很大，不会漏。
+schedule: "5 */4 * * *"
+
+# 第 1 页走栏目页（page-1.shtml 会跳首页并丢 4 条，见上面说明）
+first_page_url: "http://cqzdt.toobiao.com/zhaobiao/"
+search_url: "http://cqzdt.toobiao.com/zhaobiao/page-{page}.shtml"
+
+response_type: html
+
+list_container: "div.main-l div.pdbox ul li"
+
+list_fields:
+  title:
+    selectors: ["a"]
+    extract: text
+  url:
+    selectors: ["a"]
+    extract: "attr:href"
+  publish_time:
+    selectors: ["span.fr"]
+    extract: text
+    regex: "\\d{4}-\\d{1,2}-\\d{1,2}"
+
+# 只留招标公告。栏目页本身是干净的 20 条招标公告，
+# 但配了 first_page_url 后第 1 页就是栏目页，这条主要是防御：
+# 万一哪天站点把结果公示挂进栏目页，d-zhongbiao-*.html 会被挡掉。
+# （HTML 路径要用 url_filter，drop_if 只在 JSON 路径生效。）
+url_filter: "d-zb-\\d+\\.html"
+
+# 站端不支持关键词检索 → 拉列表后本地过滤
+local_filter: true
+default_keyword: 法律
+keywords:
+  - 法律
+  - 法律顾问
+  - 法律服务
+  - 诉讼
+  - 律师
+  - 法务
+  - 纠纷
+  - 仲裁
+# 刻意不收「合规」「咨询」「造价」「审计」：
+#   合规 —— 本站标题里 0 命中，加了没用；
+#   咨询/造价 —— 本站唯一的 1 条命中（工程造价纠纷调解咨询服务）
+#                 已经被「纠纷」捞到了，收进来只会放进大量
+#                 「工程造价咨询」「技术咨询」这类工程类采购，全是噪音；
+#   审计 —— 同理，会放进工程审计而非法律服务。
+
+delay:
+  min: 1.5
+  max: 3.0
+
+pagination:
+  type: page_param
+  param: page
+  page_size: 20
+  # 10 页 = 200 条 ≈ 3 天发布量（本站约 67 条/天）。
+  # 配每 4 小时一轮，新公告在窗口里能停留 3 天，绝不会漏。
+  # 再深意义不大——实测法律类命中率仅 0.25%（400 条里 1 条）。
+  max_pages: 10
+
+# 详情页在 www.dlzb.com，阿里云 WAF + 滑块验证码，HTTP 与浏览器都过不去。
+# 开着只会每轮多打几十次必定失败的请求，所以明确关掉。
+fetch_detail: false
+fetch_detail_default: false

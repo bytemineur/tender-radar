@@ -1,0 +1,59 @@
+# 招标雷达 — systemd 服务单元
+#
+# 存为 /etc/systemd/system/tender-radar.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now tender-radar
+#
+# 假设代码部署在 /opt/tender-radar，运行用户为 tender。
+#
+# 若实际装在别的目录（比如 /root/tender-radar），先一次性替换全部路径再启用：
+#   sudo sed -i 's#/opt/tender-radar#/root/tender-radar#g' \
+#        /etc/systemd/system/tender-radar.service
+# 路径不对最典型的症状是 .env 读不到：启动日志里「SMTP 未配置」，
+# 登录发码的 channel 变成 dev（验证码不真发邮件，门禁等于没有）。
+# 用户是 root 时，把下面两行的 User=/Group= 也一并注释掉。
+
+[Unit]
+Description=Tender Radar (招标雷达)
+After=network.target
+
+[Service]
+Type=simple
+User=tender
+Group=tender
+WorkingDirectory=/opt/tender-radar
+
+# 从这个文件读环境变量。注意 systemd 的 EnvironmentFile 格式很挑：
+#   - 一行一个 KEY=value，值外面不要加引号（加了会变成字面引号）
+#   - 值里的 # 会被当成注释起点，所以密码里有 # 就要换行写或改用 Environment=
+EnvironmentFile=/opt/tender-radar/.env
+
+# 系统时区。全站时间都用 datetime.now()（本地时间），而 APScheduler 的
+# cron 写死 Asia/Shanghai —— 服务器若是 UTC，两者会差 8 小时：采集窗口
+# 偏移、后台显示的时间戳偏早 8 小时、「未截止」判断也会错。设这一行即可对齐。
+Environment=TZ=Asia/Shanghai
+
+# --workers 1 是硬要求，不是保守：
+#   1) APScheduler 在进程里，起多个 worker 会导致同一轮采集被重复触发；
+#   2) SQLite 在 WAL 下虽支持并发读，但写入是全局排他，多进程容易撞
+#      "database is locked"。要横向扩容请先换 PostgreSQL（TR_DATABASE_URL）。
+ExecStart=/opt/tender-radar/.venv/bin/uvicorn app.main:app \
+    --host 127.0.0.1 --port 8000 --workers 1 \
+    --proxy-headers --forwarded-allow-ips=127.0.0.1
+
+Restart=always
+RestartSec=5
+
+# 日志交给 journald：journalctl -u tender-radar -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tender-radar
+
+# ── 只读加固：只放开数据与快照目录 ────────────────────────────────────
+ProtectSystem=full
+ReadWritePaths=/opt/tender-radar/data
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

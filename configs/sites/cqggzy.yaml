@@ -1,0 +1,101 @@
+# 重庆市公共资源交易网（www.cqggzy.com）—— 已实测可用（纯 HTTP）
+#
+# 【实测结论 2026-10-31】
+#   · 同样是 ES 中间件（`/inteligentsearch/rest/...`，不带 `_new`），
+#     响应**有** content 包裹层（与陕西一致，与江苏相反），所以必须配
+#     `json_unwrap: content`。
+#
+#   · 重庆这套库里**没有政府采购频道**：cnum 试过 001~006，
+#     只有 001（中介超市 + 其他交易）和 003（国企采购，量很小）有数据，
+#     002/004/005/006 全部为 0。所以 cnum 固定 001。
+#
+#   · 分类字段叫 `categorytype`（中介超市 / 国企采购 / 其他交易及自愿入场）
+#     和 `categorytype2`（中选公告 / 交易公告 / 成交公告）——**没有陕西那种
+#     12 位 categorynum 分类**，也不能用 condition 钉，只能事后用 drop_if 挡。
+#     这里把 notice_type 映射到 categorytype2，按「中选/成交/结果」丢行。
+#
+#   · 意外之喜：`companyname` 直接就是采购人（重庆市永川区规划和自然资源局
+#     这种全称），是所有 ES 系源里唯一白送采购人的，映射到 purchaser。
+#
+#   · 「中介超市」是重庆特有的政府采购中介服务选聘平台，政府机关、国企
+#     在这里买法律服务（追偿权纠纷代理、常年法律顾问都在里面），
+#     对本项目而言是有效商机，不是噪音。
+#
+# 业务价值：省级官方平台（重庆市公共资源交易中心），中介超市里的法律服务
+# 选聘是重庆独有的高价值品类。
+
+id: cqggzy
+name: 重庆公共资源交易
+base_url: https://www.cqggzy.com
+enabled: true
+mode: http
+version: "1.0.0"
+schedule: "30 */4 * * *"
+
+search_url: "https://www.cqggzy.com/inteligentsearch/rest/esinteligentsearch/getFullTextDataNew"
+
+response_type: json
+post_json: true
+json_unwrap: content
+json_items: "result.records"
+
+json_fields:
+  title: "titlenew"
+  url: "linkurl"
+  publish_time: "webdate"
+  content: "content"
+  purchaser: "companyname"
+  # 用于 drop_if：中选公告 / 成交公告 / 交易公告…
+  notice_type: "categorytype2"
+
+static_fields:
+  province: "重庆"
+
+# 中介超市的「中选公告」= 已经选完了，等同于结果公告，不进主信息流
+drop_if:
+  notice_type: "中选|成交|结果|公示"
+
+post_data:
+  token: ""
+  pn: "{pn}"
+  rn: "20"
+  sdt: ""
+  edt: ""
+  wd: "{keyword}"
+  inc_wd: ""
+  exc_wd: ""
+  fields: "title"
+  cnum: "001"
+  sort: '{"webdate":"0"}'
+  ssort: ""
+  cl: "3000"
+  terminal: ""
+  # 重庆没有可用的 categorynum 分类维度，condition 留 null 全量取
+  condition: null
+  time: null
+  highlights: "title;content"
+  statistics: null
+  unionCondition: null
+  accuracy: ""
+  noParticiple: "0"
+  searchRange: null
+
+default_keyword: 法律
+keywords:
+  - 法律
+  - 律师
+  - 诉讼
+
+delay:
+  min: 1.5
+  max: 3.0
+
+pagination:
+  type: page_param
+  param: pn
+  page_size: 20
+  max_pages: 2
+
+fetch_detail: false
+
+window_days: 0

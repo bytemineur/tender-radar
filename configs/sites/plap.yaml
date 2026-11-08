@@ -1,0 +1,97 @@
+# 军队采购网（plap.mil.cn）—— 已实测可用，法律类线索密度极高
+#
+# 【实测结论 2026-10-23】
+#   · 域名是 **.mil.cn**（不是 .cn）：www.plap.cn 已无法解析，
+#     https://www.plap.mil.cn 才是现行地址。根域名 plap.mil.cn 会 404。
+#   · 站点是 **FreeCMS**（`/freecms-glht` 前缀），公告由标准 REST 接口吐数据：
+#       GET /freecms-glht/rest/v1/notice/selectInfoMoreChannel.do
+#     关键参数（少一个都不行，顺序照抄前端 getDataList）：
+#       siteId      = 404bb030-5be9-4070-85bd-c94b1473e8de   （站点固定）
+#       channel     = c5bff13f-21ca-4dac-b158-cb40accd3035   （采购公告栏目）
+#       currPage    = 页码，从 1 起
+#       pageSize    = **服务端硬限制 20**，传 50/100 也只回 20 条，别白试
+#       title       = 关键词，**按标题子串匹配**（不是全文），命中率很高
+#       其余 noticeType/regionCode/purchaseManner/... 全部留空即可
+#   · **不需要 Referer**，不带也能 200（这点比多数政务站友好）。
+#   · 返回结构 `{code,msg,total,data:[...]}`，data 里每条**自带 content 全文 HTML**，
+#     所以 fetch_detail: false —— 一次请求就把正文拿到，跟 ggzy / hbggzy 一样省事。
+#
+# 【为什么这个源值得单独接】
+#   标题里直接写「常年法律顾问」「法律咨询服务」「司法诉讼法律服务」的密度远超地方平台，
+#   实测「法律」83 条 /「法律服务」32 /「法律顾问」25 /「律师」17 /「诉讼」12（全历史）。
+#   军队系统的法律服务采购客单价稳定、周期长（常年顾问多为 1~2 年期），
+#   且这条线与政府采购网（ccgp）**完全不重叠**。
+#
+# 【两个坑】
+#   1. 结果默认按 noticeTime 倒序，**不需要也不应该用时间窗去卡**：
+#      每轮拉第 1 页就是最新，配合 max_pages 翻几页即可，重复交给去重层。
+#      window_days 设 0，强行加 awhile 反而会因为当天没有公告而误判「选择器失效」。
+#   2. 「法律」是短词且为子串匹配，已经把「法律顾问」「法律服务」的结果都吃进去了，
+#      关键词列表里**不要再列长词**，否则同一个公告会被重复扫好几遍。
+
+id: plap
+name: 军队采购网
+base_url: https://www.plap.mil.cn
+enabled: true
+mode: http
+version: "1.0.0"
+schedule: "45 */3 * * *"
+
+# GET 型：{keyword} 会被百分号编码，{page} 是页码（从 1 起）
+search_url: "https://www.plap.mil.cn/freecms-glht/rest/v1/notice/selectInfoMoreChannel.do?siteId=404bb030-5be9-4070-85bd-c94b1473e8de&channel=c5bff13f-21ca-4dac-b158-cb40accd3035&currPage={page}&pageSize=20&noticeType=&regionCode=&purchaseManner=&title={keyword}&openTenderCode=&operationStartTime=&operationEndTime=&selectTimeName=&cityOrArea=&purchaseNature=&punishType="
+
+response_type: json
+json_items: "data"
+
+json_fields:
+  title: "title"
+  publish_time: "noticeTime"
+  # 列表自带正文全文（HTML），预算/截止/采购人都能从这里抽
+  content: "content"
+  # 站点自带地区字段，比从正文猜准得多（值是「广东省」「新疆维吾尔自治区」这种，
+  # extract 层的 normalize_province 会归一成「广东」「新疆」）
+  province: "regionName"
+  # 部分公告披露了预算，单位就是元
+  budget: "budget"
+  # 开标时间。注意它不等于「投标截止」，只是最贴近的一个时间锚点；
+  # 正文里若写了更准确的递交截止时间，抽取层会优先用正文的
+  deadline: "openTenderTime"
+  url: "pageurl"
+  notice_type: "noticeType"
+  project_code: "openTenderCode"
+
+# 相对路径，base_url 会自动 join 成绝对地址
+# content 里已有全文，不必再逐条打详情
+fetch_detail: false
+
+delay:
+  min: 1.5
+  max: 3.0
+
+pagination:
+  type: page_param
+  param: currPage
+  page_size: 20
+  max_pages: 3
+
+keywords:
+  - 法律
+  - 律师
+  - 诉讼
+  - 合规
+  - 法务
+
+default_keyword: 法律
+
+# 倒序取最新，不设时间窗（见头部说明）
+window_days: 0
+lookback_days: 0
+
+# ── 详情 ────────────────────────────────────────────────
+# fetch_detail 关着时用不到；留着以便日后想核对原文时打开
+detail_container: "div.article, div.content, div.detail"
+
+detail_fields:
+  content:
+    selectors: ["div.article", "div.content", "div.detail"]
+    extract: text

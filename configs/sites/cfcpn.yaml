@@ -1,0 +1,122 @@
+# 中国金融集中采购网 · 金采网（cfcpn.com）—— 银行/保险/证券的采购公告
+#
+# 【实测结论 2026-10-24】
+#   法律类密度很高：「法律」一词命中 442 条招标公告，全是银行、保险的
+#   常年法律顾问、诉讼服务、合规咨询项目，质量比多数地方站好。
+#
+# 站点的四个特点，绕法都记在这里：
+#
+#   ① **只有 HTTP，没有 HTTPS**。https://www.cfcpn.com/ 连不上，
+#      必须写 http://。
+#
+#   ② **接口校验 Referer**，缺了直接 403。带上列表页的 Referer 就 200。
+#      这是本项目 headers 字段的第二个用例（第一个是 zycg）。
+#
+#   ③ **详情页是空壳 + 截断预览**。HTML 里正文只有开头一小段，末尾写着
+#      「预览结束，注册并登录免费查看完整公告」，而且**没有截止时间**。
+#      真正的全文和 endTime 在详情接口里（同一个 dataNoticeList，
+#      带 id + isDetail=1）。所以走 detail_post_data / detail_json_fields。
+#
+#   ④ **限流是配额制，这是接入时最要紧的一条**。
+#      实测（2026-10-24）：
+#        - 一轮打 21 次请求 → 前 3 个 200，之后 40 多个全 403，7 分钟没恢复
+#        - 一轮打 12 次请求 → 前 6 个 200，第 7 个起 403
+#      关键判断：**不是速率限制，是配额**。请求间隔已经拉到 3~6 秒照样被封，
+#      加大 delay 没用，唯一有效的办法是减少请求总数。
+#      安全线是**每轮 5 次**（实测 6 次是临界，会让来源标记 blocked）。
+#      所以这里做了三处收敛：
+#        - keywords 只留 2 个（2 次列表请求；原来 8 个词 = 8 次，必封）
+#        - detail_limit: 3（只给最新 3 条补详情，共 5 次请求）
+#        - schedule 降到每天 3 次（原 2 小时一次 = 12 轮/天，配额撑不住）
+#      要放开请先小步试：detail_limit 改 4 跑一轮，看日志有没有 403。
+#      宁可少拿几条，也别把 IP 封死、让来源一直显示「被拦截」。
+#
+#   ⑤ **接口不返回截止时间**。详情接口的 28 个字段里没有 endTime 之类，
+#      但正文里写得清清楚楚（「提交投标文件截止时间：2026年 11 月 16 日 10 时 00分」），
+#      由通用抽取层从正文里正则提出来。所以**只有取到详情的那几条才有截止时间**，
+#      其余靠列表字段入库——这是配额限制下的取舍，不是抽取失败。
+#
+# 接口：POST /jcw/noticeinfo/noticeInfo/dataNoticeList（列表与详情共用）
+#   列表: noticeType=1&pageNo=0&pageSize=20&noticeState=1&isValid=1
+#         &orderBy=publish_time desc&noticeTitle={关键词}
+#   详情: id={公告id}&isDetail=1
+# noticeType: 1=采购/招标 2=征集 3=更正 4=结果
+#   这里只做 1（招标公告有截止时间，是雷达的核心；结果公告对找业务没用）
+# 关键词参数叫 **noticeTitle**（title / searchVal / key 传了都不生效）
+# 分页 pageNo 是 0 基，且实测 pageNo=0 与 1 返回同一页，翻页不靠谱，
+#   所以只取第一页——反正按发布时间倒序，第一页就是最新的。
+
+id: cfcpn
+name: 中国金融集中采购网（金采网）
+base_url: http://www.cfcpn.com
+enabled: true
+mode: http
+response_type: json
+version: "1.0.0"
+# 配额制站点，频次必须压低：每天 3 次（8 / 13 / 18 点），共约 15 次请求
+schedule: "0 8,13,18 * * *"
+
+search_url: http://www.cfcpn.com/jcw/noticeinfo/noticeInfo/dataNoticeList
+
+# 缺 Referer 一律 403
+headers:
+  Referer: http://www.cfcpn.com/jcw/sys/index/goUrl?url=modules/sys/login/list&column=cggg
+
+post_data:
+  noticeType: "1"
+  pageNo: "{page0}"
+  pageSize: "20"
+  noticeState: "1"
+  isValid: "1"
+  orderBy: "publish_time desc"
+  noticeTitle: "{keyword}"
+
+json_items: rows
+json_fields:
+  title: noticeTitle
+  publish_time: publishTime
+  src_id: id
+  # 列表就带省份和采购人，先填上；详情接口会给更准的
+  province: area
+  purchaser: userName
+
+# 详情页 = /jcw/sys/index/goUrl?url=modules/sys/login/detail&column=1&searchVal={id}
+url_template: >-
+  http://www.cfcpn.com/jcw/sys/index/goUrl?url=modules/sys/login/detail&column=1&searchVal={src_id}
+
+fetch_detail: true
+# 详情走接口而不是抓 HTML 页面（页面只有截断预览，且没有截止时间）
+detail_post_data:
+  id: "{src_id}"
+  isDetail: "1"
+detail_json_fields:
+  content: noticeContent
+  deadline: endTime
+  province: area
+  purchaser: userName
+  notice_type: purchaseTypeName
+# 只给最新 3 条补详情：2 次列表 + 3 次详情 = 5 次请求，卡在配额安全线内
+detail_limit: 3
+
+# 标题子串匹配。金融机构的法律类项目常用「法律顾问 / 诉讼 / 合规 / 律师」，
+# 但每多一个词就多一次列表请求，限流站只留覆盖最广的两个：
+# 「法律顾问」能捞到「常年法律顾问」这类标题里没有「法律」二字的公告。
+# 失败/流标公告**保留**——项目会重新招标，对找业务反而是线索；
+# 只挡真正取消的（终止 / 废标 / 中止），这类不会再有下文。
+drop_if:
+  title: "终止|废标|中止"
+default_keyword: 法律
+keywords:
+  - 法律
+  - 法律顾问
+
+pagination:
+  type: page_param
+  param: pageNo
+  # 站点翻页不可靠（0/1 页返回同样内容），且倒序第一页就是最新
+  max_pages: 1
+
+# 站点明确会限流，宁慢勿封
+delay:
+  min: 3.0
+  max: 6.0

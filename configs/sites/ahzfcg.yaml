@@ -1,0 +1,120 @@
+# 安徽政府采购网 / 政采云（www.ccgp-anhui.gov.cn）—— 已实测可用
+#
+# 【实测结论 2026-10-31】
+#   · 和上海（shzfcg）、浙江（zjzfcg）同一套政采云门户，列表接口、
+#     字段结构几乎一致，**只有域名和 categoryCode 不同**。
+#
+#   · 列表接口：POST /portal/category，body 里的键必须是 **categoryCode**
+#     （写成 code 会回 {"result":{"data":null}} —— HTTP 200 但不报错，
+#     表现就是「这个源一条都抓不到」）。
+#
+#   · **栏目码是新版字符串体系**，不是上海/浙江那种 `77-938917` 数字码。
+#     从首页 HTML 里抠出来的全集和实测归属：
+#         ZcyAnnouncement1   采购意向公开    total=8    量太小，不接
+#         ZcyAnnouncement2   采购公告        total=279  ← 取这个
+#         ZcyAnnouncement3   更正公告        total=92   （项目仍在进行，可作下一轮候选）
+#         ZcyAnnouncement4   中标(成交)/终止  total=347  噪音，不接
+#         anhuiCategory102   重要通知        total=2    噪音，不接
+#         ZcyAnnouncement7003/7004           total=0    空栏目
+#     注意 **各省编号体系不通用**：安徽的采购公告是 2，山西是 1，
+#     山西的 ZcyAnnouncement2 反而是中标结果。别照抄。
+#
+#   · **这个栏目非常干净**：实测 4 个关键词 × 2 页共 66 条里，
+#     pathName 只有 公开招标公告 / 竞争性磋商公告 / 询价公告 / 竞争性谈判公告
+#     四种，**全是还能投的**，没有合同公告、结果公告这类噪音
+#     （上海那个栏目 80% 是噪音，必须靠 drop_if 挡）。
+#     所以这里只留一个兜底的终止/废标过滤。
+#
+#   · 关键词字段名是 **keyword**，生效：keyword=法律 → 279 条；
+#     keyword=法律顾问 → 175 条（栏目全量 322795 条）。
+#
+#   · **采购人字段是 author，不是 purchaseName**——这栏 purchaseName
+#     实测 15/15 全为 null，author 15/15 全有值（安徽省司法厅、
+#     合肥市住房公积金管理中心…）。所以配成 `purchaseName||author`
+#     双候选，哪边有值用哪边。
+#
+#   · 预算 budgetPrice 实测全为 null（安徽不在列表里给预算），
+#     开标时间 bidOpeningTime 15/15 有值。预算只能靠详情页正文补。
+#
+#   · **详情页是 GET 而不是 POST**：GET /portal/detail?articleId=xxx
+#     直接返回 JSON（result.data.content 是完整正文 HTML），不是 SPA 空壳。
+#     这是本项目第一个 GET 型详情接口，为此在 SiteRule 上加了
+#     detail_method 字段（默认仍是 POST，不影响电信/国网/cfcpn）。
+#
+#   · articleId 是 Base64，含 `+` `=`，**必须 percent-encode**，
+#     否则服务端把 `+` 解成空格，返回 200 但 data 为 null。
+#     管线里的 _encode_query_values 已经处理。
+#
+# 业务价值：省司法厅、合肥/马鞍山/滁州各级机关的法律服务与常年法律顾问
+# 采购量大，且按包别拆分（三包、包别1），一个项目能出多条商机。
+
+id: ahzfcg
+name: 安徽政府采购网
+base_url: https://www.ccgp-anhui.gov.cn
+enabled: true
+mode: http
+version: "1.0.0"
+schedule: "20 */4 * * *"
+
+search_url: "https://www.ccgp-anhui.gov.cn/portal/category"
+
+response_type: json
+post_json: true
+json_items: "result.data.data"
+
+json_fields:
+  title: "title"
+  publish_time: "publishDate"
+  deadline: "bidOpeningTime"
+  # 安徽 purchaseName 恒空，采购人在 author 上，两个都试
+  purchaser: "purchaseName||author"
+  budget: "budgetPrice"
+  notice_type: "pathName"
+  industry: "gpCatalogName"
+  article_id: "articleId"
+
+# 只兜底挡掉不会再有下文的（采购公告栏目本身不含结果/合同类）
+drop_if:
+  title: "终止|废标|中止"
+
+url_template: "https://www.ccgp-anhui.gov.cn/portal/detail?articleId={article_id}"
+
+static_fields:
+  province: "安徽"
+
+post_data:
+  pageNo: "{page}"
+  pageSize: 15
+  categoryCode: "ZcyAnnouncement2"
+  keyword: "{keyword}"
+
+default_keyword: 法律顾问
+keywords:
+  - 法律顾问
+  - 法律服务
+  - 律师
+  - 诉讼代理
+
+delay:
+  min: 1.5
+  max: 3.0
+
+pagination:
+  type: page_param
+  param: pageNo
+  page_size: 15
+  max_pages: 2
+
+# ── 详情页：GET + JSON，用来补正文和预算 ──────────────
+fetch_detail: true
+detail_method: GET
+detail_url: "https://www.ccgp-anhui.gov.cn/portal/detail?articleId={article_id}"
+# 详情响应是 {"success":true,"result":{"data":{...}}}，对象不是数组
+detail_json_items: "result.data"
+detail_json_fields:
+  content: "content"
+  purchaser: "purchaseName||author"
+  notice_type: "categoryNames"
+# 安徽列表不给预算，预算只能从正文补，所以详情必须开。
+# 每轮给最新 8 条补：8 次列表 + 8 次详情 = 16 个请求，卡在礼貌线内。
+detail_limit: 8

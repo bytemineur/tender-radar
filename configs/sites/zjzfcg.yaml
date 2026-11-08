@@ -1,0 +1,83 @@
+# 浙江政府采购网 / 政采云（zfcg.czt.zj.gov.cn）—— 已实测可用
+#
+# 【实测结论 2026-10-22】
+#   · 政采云是全国性政府采购云平台，浙江、四川等多省门户都跑它这套代码，
+#     所以这个接口调通了，后面接其他省份的政采云门户成本极低。
+#   · 列表接口：POST /portal/category（不是 /portal/searchHome，
+#     后者是首页各栏目的摘要，categoryCode 是另一套）。
+#   · 关键词字段名是 **keyword**。title / searchTitle / searchKey / name
+#     这四个我全试过，传了等于没传，total 恒为全量 352860。
+#   · 栏目代码 categoryCode=110-606633 是采购公告大类，但它把
+#     采购公告 / 中标结果 / 合同公告 混在一个列表里返回，
+#     实测 keyword=法律顾问 时 1309 条里大半是已经成交的「合同公告」。
+#     所以配了 drop_if 按 pathName 挡掉结果类和合同类。
+#   · 时间字段是 **13 位毫秒时间戳**（publishDate / bidOpeningTime），
+#     不转换的话发布日期会整片丢失，解析层已做统一归一。
+#   · 列表本身就带预算（budgetPrice）、采购人（purchaseName）、
+#     地区（districtName）、品目（gpCatalogName=法律咨询服务/其他法律服务），
+#     字段质量比多数省级站高，所以 fetch_detail 关着也够用。
+#
+# 业务价值：浙江民企/高校/卫健系统常年法律顾问采购量大，客单价不低。
+
+id: zjzfcg
+name: 浙江政府采购网
+base_url: https://zfcg.czt.zj.gov.cn
+enabled: true
+mode: http
+version: "1.0.0"
+schedule: "20 */3 * * *"
+
+search_url: "https://zfcg.czt.zj.gov.cn/portal/category"
+
+response_type: json
+post_json: true
+json_items: "result.data.data"
+
+json_fields:
+  title: "title"
+  publish_time: "publishDate"
+  deadline: "bidOpeningTime"
+  purchaser: "purchaseName"
+  budget: "budgetPrice"
+  province: "districtName"
+  notice_type: "pathName"
+  industry: "gpCatalogName"
+  article_id: "articleId"
+
+# 这一栏混着三类公告，只要还能投的。
+# 注意字段名用**映射后**的名字（notice_type，即 json_fields 的键），
+# 不是站点原始的 pathName。
+drop_if:
+  notice_type: "合同公告|结果公告|成交公告|终止|废标"
+
+url_template: "https://zfcg.czt.zj.gov.cn/portal/detail?articleId={article_id}"
+
+static_fields:
+  province: "浙江"
+
+post_data:
+  pageNo: "{page}"
+  pageSize: 15
+  categoryCode: "110-606633"
+  isGov: true
+  keyword: "{keyword}"
+
+default_keyword: 法律顾问
+keywords:
+  - 法律顾问
+  - 法律服务
+  - 律师
+  - 诉讼代理
+
+delay:
+  min: 1.5
+  max: 3.0
+
+pagination:
+  type: page_param
+  param: pageNo
+  page_size: 15
+  max_pages: 2
+
+# 列表已给预算/采购人/开标时间，不必逐条取详情（详情页是 SPA，取了也慢）
+fetch_detail: false

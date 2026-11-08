@@ -1,0 +1,131 @@
+# 中央国家机关政府采购中心（zycg.gov.cn）—— 中央部委采购公告
+#
+# 【实测结论 2026-10-24】
+#   这个站有两道坎，绕法都写在这里，别再从头试一遍：
+#
+#   ① 列表页 /freecms/site/zygjjgzfcgzx/cggg/index.html 是空壳。
+#      内容靠 /freecms/rest/v1/notice/selectInfoMore.do 拉。
+#
+#   ② 那个接口裸 HTTP 打不通。curl / httpx 带齐 Referer、X-Requested-With、
+#      Content-Type、Accept 全都返回 {"code":"-1","msg":"公告列表查询失败"}。
+#      实测只有走 Chromium 网络栈才行，所以 mode: browser。
+#      而且 page.goto 直接开接口 URL 也不行（导航请求不带 Referer），
+#      必须用 context.request.get —— 这条路径既带得上 Referer，
+#      又是浏览器握手特征，两头都满足，还不用渲染页面（快很多）。
+#      → 对应 fetcher 的 raw_json 分支 + 下面的 headers.Referer。
+#
+#   ③ 页面自己的 JS 有 bug（jQuery 版本不对，报 slice of undefined），
+#      #noticeShow 渲染不出来。所以**不能抓 DOM**，只能吃接口。
+#
+#   ④ title 参数是标题子串匹配，实测「法律」命中 1 条、「法律服务」0 条
+#      （确实没有标题里带这四个字的公告）。所以关键词要短、要多。
+#
+# 接口参数（来自页面 JS，别改 siteId/channel，那是站点实例 ID）：
+#   siteId=6f5243ee-d4d9-4b69-abbd-1e40576ccd7d
+#   channel=d0e7c5f4-b93e-4478-b7fe-61110bb47fd5   采购公告栏目
+#   implementWay=1 & noticeType=1,2,3,31,32,52,57,61
+#     两者必须同时给值，缺任一个就 code=-1（这个组合是页面 JS 里
+#     num=='1' 分支写死的，对应公开招标/邀请/磋商等主流采购方式）
+#
+# 返回字段只有 6 个：title / pageurl / addtimeStr / id / isTop / isDianbiao
+#   没有采购人、没有预算、没有截止时间 —— 全在详情页里，所以 fetch_detail 必须开。
+
+id: zycg
+name: 中央国家机关政府采购中心
+base_url: https://www.zycg.gov.cn
+enabled: true
+mode: browser
+response_type: json
+version: "1.0.0"
+schedule: "0 */2 * * *"
+
+search_url: >-
+  https://www.zycg.gov.cn/freecms/rest/v1/notice/selectInfoMore.do
+  ?&siteId=6f5243ee-d4d9-4b69-abbd-1e40576ccd7d
+  &channel=d0e7c5f4-b93e-4478-b7fe-61110bb47fd5
+  &currPage={page}&pageSize=15&title={keyword}
+  &implementWay=1&noticeType=1,2,3,31,32,52,57,61
+
+headers:
+  Referer: https://www.zycg.gov.cn/freecms/site/zygjjgzfcgzx/cggg/index.html
+  X-Requested-With: XMLHttpRequest
+
+json_items: data
+json_fields:
+  title: title
+  url: pageurl
+  publish_time: addtimeStr
+  external_id: id
+
+# 接口只给标题/时间/链接，预算与截止时间一律取详情。
+# 已入库条目会判重跳过，稳态下只有新增才付这个代价。
+fetch_detail: true
+
+# 中央部委项目，采购人基本都驻北京（正文里的联系地址也是北京）。
+# 写「中央」会被抽取层判为非法省份名而清空，地图没法聚合，所以填北京。
+# 若想要「项目实施地」而非「采购人所在地」，把这行删掉即可。
+static_fields:
+  province: 北京
+
+# 标题子串匹配：越短命中越多。「法律」能覆盖法律顾问/法律服务/法律适用，
+# 再补几个不带「法律」二字的同义场景。
+default_keyword: 法律
+keywords:
+  - 法律
+  - 律师
+  - 法律顾问
+  - 法律服务
+  - 诉讼
+  - 司法
+  - 合规
+  - 审计
+
+# pageurl 是相对路径（/freecms/site/.../info/2026/xxx.html），
+# 只放行详情页，滤掉可能的非公告链接
+url_filter: "/info/\\d{4}/"
+
+# 详情页是静态 HTML。正文容器是 div.info-content（也带 .resurgenceBox），
+# 别用 div.content —— 那个 class 在导航里也有，会取到 635 字符的导航栏。
+# 正文里混着右侧推荐新闻，抽取靠正则定位，不影响。
+detail_container: "div.info-content"
+detail_fields:
+  content:
+    selectors:
+      - "div.info-content"
+      - "div.info-content-box"
+    extract: text
+  # 原文：「1．提交（上传）投标文件截止时间： 2026年11月11日09时00分（北京时间）」
+  deadline:
+    selectors:
+      - "div.info-content"
+    extract: text
+    regex: "提交（上传）投标文件截止时间\\s*[：:]\\s*(\\d{4}年\\d{1,2}月\\d{1,2}日[^（(]{0,14})"
+  # 原文：「3．预算金额： 150.000000万元」
+  budget:
+    selectors:
+      - "div.info-content"
+    extract: text
+    regex: "预算金额\\s*[：:]\\s*([\\d,\\.]+\\s*(?:亿元|万元|万|元))"
+  # 原文：「1．采购人信息 \n 名  称：国家法官学院(最高人民法院…) \n 地  址：…」
+  # 注意「名 称」中间是不间断空格 \xa0，用 \s* 才吃得下。
+  purchaser:
+    selectors:
+      - "div.info-content"
+    extract: text
+    regex: "采购人信息\\s*名\\s*称\\s*[：:]\\s*([^\\n]{2,40}?)\\s*地\\s*址"
+  # 中央国家机关的公告执行机构基本都是国采中心本身
+  agency:
+    selectors:
+      - "div.info-content"
+    extract: text
+    regex: "采购执行机构信息\\s*名\\s*称\\s*[：:]\\s*([^\\n]{2,40}?)\\s*地\\s*址"
+
+pagination:
+  type: page_param
+  param: currPage
+  # 关键词命中量很小（「法律」只有 1 条），一页就够，翻多了纯浪费
+  max_pages: 2
+
+delay:
+  min: 2.0
+  max: 4.0

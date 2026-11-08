@@ -1,0 +1,96 @@
+# 四川公共资源交易信息网 · 政府采购（ggzyjy.sc.gov.cn）—— 已实测可用
+#
+# 【实测结论 2026-10-22】
+#   · 和陕西是同一套 ES 全文检索中间件，但**路径少一个 _new**：
+#       陕西 /inteligentsearch_new/rest/esinteligentsearch/getFullTextDataNew
+#       四川 /inteligentsearch/rest/esinteligentsearch/getFullTextDataNew
+#     而且四川的响应**没有 {code, content} 外层包装**，直接是 {"result": {...}}，
+#     所以这里不配 json_unwrap，只配 json_items=result.records。
+#   · 关键词 wd 同样不能 URL 编码（见 sxggzy.yaml 的说明）。
+#   · 标题有两个字段：title 带 <em> 高亮标签，titlenew 是干净的原文。
+#     取 titlenew，省得再剥标签，标题去重也更准。
+#   · categorynum 必须精确指定，否则会把中标/合同/供应商主体全混进来：
+#       002002001 采购公告   ← 本源
+#       002002003 中标公告
+#       002002006 合同公示
+#       002008001 国企采购   ← 单独拆成 scgqcg 一个源
+#   · 实测 wd=法律顾问 + 002002001 → 204 条，全是司法局/住建局常年法律顾问采购。
+#
+# 为什么拆成两个源：国企采购（002008001）的采购人是企业不是机关，
+# 客单价和跟进方式都不一样，分开配关键词和采集频率更合理。
+
+id: sczfcg
+name: 四川政府采购
+base_url: https://ggzyjy.sc.gov.cn
+enabled: true
+mode: http
+version: "1.0.0"
+schedule: "30 */3 * * *"
+
+search_url: "https://ggzyjy.sc.gov.cn/inteligentsearch/rest/esinteligentsearch/getFullTextDataNew"
+
+response_type: json
+post_json: true
+json_items: "result.records"
+
+json_fields:
+  title: "titlenew"
+  url: "linkurl"
+  publish_time: "webdate"
+  content: "content"
+
+static_fields:
+  province: "四川"
+
+post_data:
+  token: ""
+  pn: "{pn}"
+  rn: "10"
+  sdt: ""
+  edt: ""
+  wd: "{keyword}"
+  inc_wd: ""
+  exc_wd: ""
+  # 只搜标题：写成 "title;content" 会把正文提到「相关法律法规」的公告全捞进来
+  fields: "title"
+  cnum: ""
+  # sort 必须是字符串形式的 JSON（写成嵌套对象会 500），按 webdate 降序
+  sort: '{"webdate":"0"}'
+  ssort: ""
+  cl: "3000"
+  terminal: ""
+  condition:
+    - equal: "002002001"
+      equalList: null
+      fieldName: "categorynum"
+      notEqual: null
+      notEqualList: null
+  time: null
+  highlights: "title;content"
+  statistics: null
+  unionCondition: null
+  accuracy: ""
+  noParticiple: "0"
+  searchRange: null
+
+default_keyword: 法律
+keywords:
+  - 法律
+  - 法律顾问
+  - 诉讼代理
+  - 律师
+
+delay:
+  min: 1.5
+  max: 3.0
+
+pagination:
+  type: page_param
+  param: pn
+  page_size: 10
+  max_pages: 1
+
+# 正文里就有预算和截止时间，不必逐条取详情
+fetch_detail: false
+
+window_days: 0

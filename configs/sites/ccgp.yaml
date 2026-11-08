@@ -1,0 +1,126 @@
+# 中国政府采购网（ccgp.gov.cn）—— 已实测可用
+#
+# 【实测结论 2026-10-22】
+#   · 站内搜索 search.ccgp.gov.cn 有 WAF：裸 HTTP 请求一律返回
+#     「您的访问过于频繁,请稍后再试」（HTTP 200 但是拦截页）。
+#   · 用真浏览器（本机 Chrome / Edge）打开同一个 URL 则完全正常，
+#     能拿到 98 条 li、真实公告标题与采购人。
+#   · 因此本源必须 mode: browser，prefer_browser 直接跳过 HTTP 试探，
+#     少给对方添一次拦截记录。
+#   · 频率：ccgp 对 IP 敏感，务必 ≥3 秒间隔、不并发。批量只取列表，
+#     详情按需单条取（fetch_detail）。
+#
+# 选择器依据：https://search.ccgp.gov.cn/bxsearch 结果页 DOM
+#   ul.vT-srch-result-list-bid > li
+#     ├─ a[href]           标题（命中词被 <font color=red> 包裹，取 text 会自动剥掉）
+#     ├─ p                 正文摘要
+#     └─ span              2026.10.22 14:52:55 | 采购人：xxx | 代理机构：yyy <br> 成交公告 | 四川
+
+id: ccgp
+name: 中国政府采购网
+base_url: https://www.ccgp.gov.cn
+enabled: true
+mode: browser
+version: "1.1.0"
+schedule: "0 */2 * * *"
+
+# 占位符：{page} {keyword} {start} {end}
+# start/end 格式为 YYYY:MM:DD（ccgp 特有，冒号不能换成横杠）
+search_url: >-
+  https://search.ccgp.gov.cn/bxsearch?searchtype=1&page_index={page}
+  &bidSort=0&buyerName=&projectId=&pinMu=0&bidType=0&dbselect=bidx
+  &kw={keyword}&start_time={start}&end_time={end}
+  &timeType=6&displayZone=&zoneId=&pppStatus=0&agentName=
+
+# 渲染完成标志：等到这个元素出现再取 DOM，否则可能抓到骨架页
+wait_selector: "ul.vT-srch-result-list-bid > li"
+
+# 一次采集依次跑完这组词，命中结果交给去重层合并。
+# 只搜「法律服务」会漏掉标题里写「法律顾问」「诉讼代理」的公告。
+default_keyword: 法律服务
+keywords:
+  - 法律服务
+  - 法律顾问
+  - 诉讼代理
+  - 司法辅助
+  - 律师服务
+  - 法律援助
+
+# 列表页只有标题/日期/采购人，预算与截止时间在详情页里。
+# 雷达要显示「预算 / 截止 / 剩余天数」，就必须取详情；
+# 已入库的条目会被判重跳过，所以稳态下只有新增条目才付出这个代价。
+fetch_detail: true
+
+# 限速（秒）：ccgp 务必保守
+delay:
+  min: 3.0
+  max: 6.0
+
+# ── 列表页 ──────────────────────────────────────────────
+list_container: "ul.vT-srch-result-list-bid > li"
+# 只保留公告详情页链接，滤掉导航与侧栏
+url_filter: "ccgp\\.gov\\.cn/(cggg|zygg|dfgg)/"
+
+list_fields:
+  title:
+    selectors:
+      - "a"
+    extract: text
+  url:
+    selectors:
+      - "a"
+    extract: "attr:href"
+  publish_time:
+    selectors:
+      - "span"
+    extract: text
+    regex: "\\d{4}[.-]\\d{1,2}[.-]\\d{1,2}"
+  purchaser:
+    selectors:
+      - "span"
+    extract: text
+    regex: "采购人[：:]\\s*([^|\\s]+)"
+  agency:
+    selectors:
+      - "span"
+    extract: text
+    regex: "代理机构[：:]\\s*([^|\\s]+)"
+  summary:
+    selectors:
+      - "p"
+    extract: text
+  # 省份：span 结尾形如「... 成交公告 | 四川 | 服务/商务服务/...」
+  # 用前后两个竖线夹住，避免误抽到栏目名
+  province:
+    selectors:
+      - "span"
+    extract: text
+    regex: "\\|\\s*([\\u4e00-\\u9fa5]{2,8})\\s*(?=\\|)"
+
+# ── 详情页（仅在 fetch_detail=true 时使用）──────────────
+# 实测：详情页是静态 HTML，但这里统一走浏览器会话，省得维护两套逻辑
+detail_container: "div.vF_detail_content, div.vT_detail_content"
+detail_fields:
+  content:
+    selectors:
+      - "div.vF_detail_content"
+      - "div.vT_detail_content"
+    extract: text
+  deadline:
+    selectors:
+      - "div.vF_detail_content"
+      - "div.vT_detail_content"
+    extract: text
+    regex: "(?:截止时间|递交截止|响应文件提交截止)[^0-9]{0,20}(\\d{4}[-/年.]\\d{1,2}[-/月.]\\d{1,2})"
+  budget:
+    selectors:
+      - "div.vF_detail_content"
+    extract: text
+    regex: "(?:预算金额|采购预算|项目预算)[^0-9]{0,12}[\\d,\\.]+\\s*(?:亿元|万元|万|元)"
+
+pagination:
+  type: page_param
+  param: page_index
+  # browser 模式每页都要真跑一次浏览器（约 2~4 秒），
+  # 关键词已经扩到 6 组，每组的页数就必须压下来，否则单轮要跑几分钟
+  max_pages: 2

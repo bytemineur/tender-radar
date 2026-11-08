@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>控制台 · 招标雷达</title>
+<meta name="description" content="多源招标采购信息采集、去重与检索平台">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%230f6e5d'/><circle cx='16' cy='16' r='3' fill='white'/><circle cx='16' cy='16' r='8' fill='none' stroke='white' stroke-width='1.6' opacity='.6'/></svg>">
+
+<!-- 主题必须在首帧之前定下来，否则深色偏好会先闪一下白屏。
+     默认深色：用户没手动选过时直接用 dark，而不是跟随系统。 -->
+<script>
+(function () {
+  try {
+    var pref = localStorage.getItem("tr-theme") || "dark";
+    var dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    var mode = pref === "auto" ? (dark ? "dark" : "light") : pref;
+    document.documentElement.setAttribute("data-theme", mode);
+    document.documentElement.style.colorScheme = mode;
+  } catch (e) {}
+})();
+</script>
+
+<link rel="stylesheet" href="style.css?v=20261025">
+</head>
+<body data-page="app">
+
+<header class="topbar">
+  <a class="brand" href="index.html" title="回首页">
+    <div class="logo" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+           stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none"/>
+        <path d="M12 10V4.5M13.7 12.9 18 15.4M10.3 12.9 6 15.4"/>
+        <path d="M3.4 9.2a9.5 9.5 0 0 0-1.4 4.9 10 10 0 1 0 13.4-9.4" opacity=".55"/>
+      </svg>
+    </div>
+    <div>
+      <h1>招标雷达</h1>
+      <p>Tender Radar</p>
+    </div>
+  </a>
+
+  <nav class="tabs tab-seg" id="tabs">
+    <button data-view="board" class="active">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+           stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="13" width="4" height="8" rx="1"/><rect x="10" y="8" width="4" height="13" rx="1"/><rect x="17" y="3" width="4" height="18" rx="1"/></svg>
+      看板
+    </button>
+    <button data-view="radar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+           stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/></svg>
+      雷达
+    </button>
+    <button data-view="sources">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+           stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16M4 12h16M4 19h10"/></svg>
+      来源
+    </button>
+    <!-- 管理入口：只有管理员能看到，由 admin.js 在登录后按需显示 -->
+    <button data-view="admin" id="tabAdmin" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+           stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1v.3a2 2 0 1 1-4 0v-.2a1.6 1.6 0 0 0-2.8-1.1l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H3a2 2 0 1 1 0-4h.2a1.6 1.6 0 0 0 1.1-2.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 2.7-1.1V3a2 2 0 1 1 4 0v.2a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7h.3a2 2 0 1 1 0 4h-.2a1.6 1.6 0 0 0-1.4 1z"/></svg>
+      管理
+    </button>
+  </nav>
+
+  <div class="actions">
+    <!-- 主题：跟随系统 / 浅色 / 深色 -->
+    <div class="tab-seg compact" id="themeSwitch" role="group" aria-label="主题">
+      <button data-theme="auto" title="跟随系统">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+      </button>
+      <button data-theme="light" title="浅色">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></svg>
+      </button>
+      <button data-theme="dark" title="深色">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round"><path d="M21 13.2A8.5 8.5 0 1 1 10.8 3a6.8 6.8 0 0 0 10.2 10.2z"/></svg>
+      </button>
+    </div>
+    <button class="btn btn-sm" id="btnExport">导出 CSV</button>
+    <button class="btn btn-primary btn-sm" id="btnCrawl">抓取</button>
+    <div id="accountSlot">
+      <button class="btn btn-sm" data-act="login">登录</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <!-- ── 雷达（列表）───────────────────────────── -->
+  <section class="view" id="view-radar">
+    <div class="page-head">
+      <h2>法律招标雷达</h2>
+      <span class="sub">按截止时间排序，最近要截止的排在最前</span>
+    </div>
+
+    <div class="toolbar">
+      <div class="field">
+        <input type="search" id="q" placeholder="搜标题、采购人…" autocomplete="off">
+      </div>
+      <div class="field">
+        <select id="fProvince"><option value="">全部地区</option></select>
+      </div>
+      <div class="field">
+        <label for="fType">类型</label>
+        <select id="fType"><option value="">全部类型</option></select>
+      </div>
+      <!-- 预算区间：下拉选常用档同时填下面的输入框，可再手动微调 -->
+      <div class="field">
+        <label for="fBudgetRange">预算</label>
+        <select id="fBudgetRange">
+          <option value="">不限</option>
+          <option value="0,100000">10 万以下</option>
+          <option value="100000,500000">10~50 万</option>
+          <option value="500000,1000000">50~100 万</option>
+          <option value="1000000,5000000">100~500 万</option>
+          <option value="5000000,">500 万以上</option>
+        </select>
+      </div>
+      <div class="field">
+        <input type="number" id="fMinBudget" placeholder="最低元" min="0" step="10000">
+        <span class="dash">—</span>
+        <input type="number" id="fMaxBudget" placeholder="最高元" min="0" step="10000">
+      </div>
+      <div class="field">
+        <select id="fSort">
+          <option value="deadline">按截止时间</option>
+          <option value="publish">按发布时间</option>
+          <option value="budget">按预算</option>
+        </select>
+      </div>
+      <div class="switch on" id="swActive"><span class="dot"></span>只看未截止</div>
+      <div class="switch" id="swResult"><span class="dot"></span>含结果公告</div>
+      <span class="result-count" id="count">—</span>
+    </div>
+
+    <div class="list" id="list">
+      <div class="empty"><div class="big">◌</div>正在加载…</div>
+    </div>
+  </section>
+
+  <!-- ── 看板 ─────────────────────────────────── -->
+  <section class="view active" id="view-board">
+    <div class="page-head">
+      <h2>数据看板</h2>
+      <span class="sub">基于已采集公告的本地统计，不推测缺失指标</span>
+    </div>
+
+    <div class="metrics" id="metrics">
+      <div class="metric"><div class="label">公告总数</div><div class="value" id="mTotal">—</div></div>
+      <div class="metric"><div class="label">未截止</div><div class="value" id="mActive">—</div></div>
+      <div class="metric hot"><div class="label">7 天内到期</div><div class="value" id="mUrgent">—</div></div>
+      <div class="metric"><div class="label">预算合计</div><div class="value" id="mBudget">—<small>万</small></div></div>
+    </div>
+
+    <div class="grid2">
+      <div>
+        <div class="panel">
+          <h3>全国线索分布 <span class="tag" id="mapTag">—</span></h3>
+          <p class="hint">按省份统计在库线索数，颜色越深越多；点省份跳转到雷达看当地线索</p>
+          <div class="map-wrap">
+            <div id="chinaMap" class="map-box"></div>
+            <div class="map-tip" id="mapTip"></div>
+          </div>
+          <div class="map-legend">
+            <span class="lg-label">少</span>
+            <i class="s0"></i><i class="s1"></i><i class="s2"></i>
+            <i class="s3"></i><i class="s4"></i><i class="s5"></i><i class="s6"></i>
+            <span class="lg-label">多</span>
+            <span class="lg-note" id="mapNote">行政区划边界含台湾省与南海诸岛</span>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>发布趋势 <span class="tag" id="trendTag">近 30 天</span></h3>
+          <p class="hint">每日新增公告数</p>
+          <div id="trendChart"></div>
+        </div>
+      </div>
+      <div>
+        <div class="panel">
+          <h3>区域 Top 10</h3>
+          <p class="hint">按在库线索数排序（含已截止与结果公告）；点行跳到该地区的在招列表</p>
+          <div class="bars bars-click" id="distProvince"></div>
+        </div>
+        <div class="panel">
+          <h3>即将截止</h3>
+          <p class="hint">未来 7 天内需要行动的项目</p>
+          <div class="upcoming" id="upcoming"></div>
+        </div>
+        <div class="panel">
+          <h3>来源分布</h3>
+          <p class="hint">每个站点贡献了多少条线索</p>
+          <div class="bars" id="distSource"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 来源 ─────────────────────────────────── -->
+  <section class="view" id="view-sources">
+    <div class="page-head">
+      <h2>采集来源</h2>
+      <span class="sub">来源由 configs/sites/*.yaml 定义，新增规则后点「重载规则」即可</span>
+    </div>
+    <div class="toolbar">
+      <button class="btn btn-sm" id="btnReload">重载规则</button>
+      <button class="btn btn-sm" id="btnCrawlAll">采集全部</button>
+      <span class="result-count" id="srcHint"></span>
+    </div>
+    <div class="panel" style="padding:4px 8px">
+      <table class="src">
+        <thead>
+          <tr>
+            <th style="width:150px">来源</th>
+            <th style="width:80px">模式</th>
+            <th style="width:90px">健康</th>
+            <th>最近采集</th>
+            <th style="width:70px">新增</th>
+            <th style="width:150px">操作</th>
+          </tr>
+        </thead>
+        <tbody id="srcBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ── 管理后台（仅管理员可见）──────────────────
+       四个子面板：概览 / 流量 / 用户 / 套餐。
+       套餐与收入目前是占位——没接支付就没有收入数据，如实写明而不是编造。 -->
+  <section class="view" id="view-admin">
+    <div class="page-head">
+      <h2>管理后台</h2>
+      <span class="sub">访问统计、注册用户与套餐情况。仅管理员可见。</span>
+    </div>
+
+    <div class="toolbar">
+      <div class="field">
+        <label for="admRange">时间范围</label>
+        <select id="admRange">
+          <option value="7">近 7 天</option>
+          <option value="30" selected>近 30 天</option>
+          <option value="90">近 90 天</option>
+        </select>
+      </div>
+      <span class="result-count" id="admHint"></span>
+    </div>
+
+    <div class="metrics" id="admMetrics">
+      <div class="metric"><div class="label">今日浏览量 PV</div><div class="value" id="aTodayPv">—</div></div>
+      <div class="metric"><div class="label">今日访客 UV</div><div class="value" id="aTodayUv">—</div></div>
+      <div class="metric"><div class="label">区间访客 UV</div><div class="value" id="aRangeUv">—</div></div>
+      <div class="metric hot"><div class="label">注册用户</div><div class="value" id="aUsers">—</div></div>
+    </div>
+
+    <div class="grid2">
+      <div>
+        <div class="panel">
+          <h3>访问趋势 <span class="tag" id="admTrendTag">近 30 天</span></h3>
+          <p class="hint">每日浏览量、访客数与新注册用户</p>
+          <div id="admTrend"></div>
+        </div>
+        <div class="panel">
+          <h3>浏览来源</h3>
+          <p class="hint">访客从哪些渠道跳转进来；「直接访问」表示没有来源页</p>
+          <div class="bars" id="admKinds"></div>
+          <div class="panel-sub">来源域名 Top</div>
+          <div class="bars" id="admHosts"></div>
+        </div>
+      </div>
+      <div>
+        <div class="panel">
+          <h3>被访问页面</h3>
+          <p class="hint">访问量最高的入口页面</p>
+          <div class="bars" id="admPages"></div>
+        </div>
+        <div class="panel">
+          <h3>套餐与收入 <span class="tag">预留</span></h3>
+          <p class="hint">收费功能尚未接入，以下为当前套餐分布</p>
+          <div class="bars" id="admPlans"></div>
+          <div class="billing-note" id="admBilling"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:16px">
+      <h3>注册用户 <span class="tag" id="admUserTag">—</span></h3>
+      <p class="hint">邮箱验证码登录，无密码。可调整角色或停用账号。</p>
+      <div class="table-wrap">
+        <table class="src">
+          <thead>
+            <tr>
+              <th style="width:210px">邮箱</th>
+              <th style="width:120px">昵称</th>
+              <th style="width:80px">角色</th>
+              <th style="width:110px">注册时间</th>
+              <th style="width:110px">最近登录</th>
+              <th style="width:70px">登录次数</th>
+              <th style="width:150px">操作</th>
+            </tr>
+          </thead>
+          <tbody id="admUserBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ── 页脚 ─────────────────────────────────────
+     参考 quote.law 的页脚分组：政策协议 / 用户协议 / 隐私政策。 -->
+<footer class="footer">
+  <div class="footer-inner">
+    <div class="footer-brand">
+      <div class="footer-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+             stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none"/>
+          <path d="M12 10V4.5M13.7 12.9 18 15.4M10.3 12.9 6 15.4"/>
+          <path d="M3.4 9.2a9.5 9.5 0 0 0-1.4 4.9 10 10 0 1 0 13.4-9.4" opacity=".55"/>
+        </svg>
+      </div>
+      <div>
+        <div class="footer-name">招标雷达</div>
+        <div class="footer-slogan">多源招标采购信息采集、去重与检索</div>
+      </div>
+    </div>
+
+    <nav class="footer-links" aria-label="政策协议">
+      <div class="footer-title">政策协议</div>
+      <a href="legal/user-agreement.html">用户协议</a>
+      <a href="legal/privacy-policy.html">隐私政策</a>
+    </nav>
+  </div>
+
+  <div class="footer-bottom">
+    <span>© 2026 深圳易诉达法律服务有限公司</span>
+    <span class="footer-sep">·</span>
+    <span>本站信息来自各来源网站公开发布的公告，请以原文为准</span>
+    <!-- TODO 上线前补上备案号，例如：
+    <span class="footer-sep">·</span>
+    <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">粤ICP备XXXXXXXX号</a> -->
+  </div>
+</footer>
+
+<!-- ── 详情抽屉 ───────────────────────────────── -->
+<div class="drawer-mask" id="mask"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <h3 id="dTitle">—</h3>
+    <button class="close" id="btnClose">×</button>
+  </div>
+  <div class="drawer-body" id="dBody"></div>
+</aside>
+
+<div class="toast" id="toast"></div>
+
+<script src="china-map.js?v=20261025"></script>
+<script src="auth.js?v=20261025"></script>
+<script src="admin.js?v=20261025"></script>
+<script src="app.js?v=20261025"></script>
+</body>
+</html>

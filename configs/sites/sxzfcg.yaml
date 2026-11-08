@@ -1,0 +1,106 @@
+# 山西政府采购网 / 政采云（www.ccgp-shanxi.gov.cn）—— 已实测可用
+#
+# 【实测结论 2026-10-31】
+#   · 同一套政采云门户，**栏目码又是另一套编号**：
+#         ZcyAnnouncement1   采购公告（竞争性磋商 / 公开招标） total=347 ← 取这个
+#         ZcyAnnouncement2   中标(成交)结果 / 废标 / 终止      total=361  噪音
+#         ZcyAnnouncement10  封闭式征集 / 变更                 total=21
+#         ZcyAnnouncement11  封闭式入围结果                    total=13   噪音
+#         ZcyAnnouncement10016 采购意向公开                    total=112  （早期线索，候选）
+#         ZcyAnnouncement2004 封闭式征集                       total=16
+#     注意：**安徽的采购公告是 ZcyAnnouncement2，山西是 ZcyAnnouncement1**，
+#     山西的 2 号反而是中标结果。同一套软件、各省编号完全不同，必须现测。
+#     首页里还能抠到一堆 sxCategory* 码，实测这批是导航分类不是公告栏目。
+#
+#   · 列表接口：POST /portal/category，键名 categoryCode。
+#
+#   · **三省里字段最全的一家**。实测 pageSize=15 的填充率：
+#         purchaseName  15/15   采购人（孝义市中心医院 / 孝义市司法局…）
+#         budgetPrice   15/15   预算（纯数字字符串 "450000"，parse_money 直接吃）
+#         bidOpeningTime 15/15  开标时间
+#         districtName  15/15   地市（孝义市 / 山西转型综合改革示范区）
+#         gpCatalogName 15/15   品目（服务）
+#         projectName   15/15   项目名称
+#     安徽和湖南都做不到这个完整度（安徽 purchaseName 恒空、
+#     湖南 bidOpeningTime 恒空），所以山西是三省里唯一
+#     「不开详情页也有完整商机信息」的源。
+#
+#   · **author 是代理机构，不是采购人**（实测「山西中恒致泰工程项目管理
+#     有限公司」），采购人要看 purchaseName。所以这里用
+#     `purchaseName||author` 时 purchaseName 一定优先命中，别写反。
+#
+#   · 省份同样用 static_fields 写死，不用 districtName（理由见 hnzfcg 注释）。
+#
+#   · 详情页：GET /portal/detail?articleId=xxx 返回 JSON，正文 1.7～2.5 万字，
+#     实测 4/4 成功。articleId Base64，管线已 percent-encode。
+#
+# 业务价值：省市县三级医院、司法局、转型综改示范区的法律顾问与法务服务
+# 采购，且列表直接带预算（45 万级别），是本轮三省里信息密度最高的源。
+
+id: sxzfcg
+name: 山西政府采购网
+base_url: http://www.ccgp-shanxi.gov.cn
+enabled: true
+mode: http
+version: "1.0.0"
+schedule: "10 */4 * * *"
+
+search_url: "http://www.ccgp-shanxi.gov.cn/portal/category"
+
+response_type: json
+post_json: true
+json_items: "result.data.data"
+
+json_fields:
+  title: "title"
+  publish_time: "publishDate"
+  deadline: "bidOpeningTime"
+  # author 在这站是代理机构，采购人在 purchaseName，顺序不能反
+  purchaser: "purchaseName||author"
+  budget: "budgetPrice"
+  notice_type: "pathName"
+  industry: "gpCatalogName"
+  article_id: "articleId"
+
+drop_if:
+  title: "终止|废标|中止"
+
+url_template: "http://www.ccgp-shanxi.gov.cn/portal/detail?articleId={article_id}"
+
+static_fields:
+  province: "山西"
+
+post_data:
+  pageNo: "{page}"
+  pageSize: 15
+  categoryCode: "ZcyAnnouncement1"
+  keyword: "{keyword}"
+
+default_keyword: 法律顾问
+keywords:
+  - 法律顾问
+  - 法律服务
+  - 律师
+  - 诉讼代理
+
+delay:
+  min: 1.5
+  max: 3.0
+
+pagination:
+  type: page_param
+  param: pageNo
+  page_size: 15
+  max_pages: 2
+
+# ── 详情页：GET + JSON ──────────────────────────
+# 列表字段已经很全，详情主要用来补正文（全文检索与人工研判要用）。
+fetch_detail: true
+detail_method: GET
+detail_url: "http://www.ccgp-shanxi.gov.cn/portal/detail?articleId={article_id}"
+detail_json_items: "result.data"
+detail_json_fields:
+  content: "content"
+  purchaser: "purchaseName||author"
+  notice_type: "categoryNames"
+detail_limit: 8

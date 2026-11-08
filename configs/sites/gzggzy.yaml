@@ -1,0 +1,169 @@
+# 广州公共资源交易中心 / 广州交易集团（ywtb.gzggzy.cn）—— 已实测可用
+#
+# 【实测结论 2026-10-24】
+#   · 新点（Epoint）体系站点，和陕西 sxggzy 是**同一个智能检索引擎**：
+#       POST /inteligentsearch/rest/esinteligentsearch/getFullTextDataNew
+#     无需登录、无需 cookie、无频控（连打十余次全 200）。
+#     所以直接照搬陕西那套参数结构即可，只有三处要按广州改：
+#       cnum                → 002（交易服务）。001 首页 / 003 政策法规 / 007 通知公告，
+#                             写成 001 会把主体库和政策法规混进来。
+#       fields              → "title"（只搜标题）
+#       condition           → 不限栏目，见下面 ③
+#
+#   ① **响应是双层 JSON**：{"code":200,"content":"{\"result\":{...}}"}，
+#      content 是**字符串**，必须配 json_unwrap: content 剥一层，
+#      否则 json_items 取不到数组 → 一条都解析不出来且不报错。
+#      标题/正文里还夹着 <em style='color:red'> 高亮标签，解析层统一剥。
+#
+#   ② **fields 只能写 "title"，写 "title;content" 会炸**。
+#      实测同一关键词：title → 705 条；加上 content → 123909 条。
+#      正文里凡是出现「依照相关法律法规」的公告都会被命中，噪音远大于召回。
+#
+#   ③ **不限制 categorynum**（陕西那边必须钉死 001001004001，这里相反）。
+#      广州的法律类项目分散在两个业务域，钉死任一个都会漏：
+#        002006001 采购大厅（企业采购）← 常年法律顾问类项目的主力栏目
+#        002001001 项目信息（建设工程）← 旧改、安置房项目的法律服务招标
+#      实测「法律」705 条里这两个栏目贡献了绝大部分。
+#
+#   ④ **接口直接回正文**（content 字段，cl=3000），正文里写着
+#     「项目最高总价限价：人民币170,000.00元」「采购人：广州市政府采购中心」
+#     「响应文件递交截止时间」——预算/采购人/截止全都能从列表一次拿到，
+#     所以 fetch_detail: false，不再逐条请求详情页（省掉 60 次请求/轮）。
+#
+#   ⑤ **标题里混着结果类公告**，靠 drop_if 挡：
+#     成交候选人公示 / 采购结果公告 / 采购失败公告 / 中标结果公告 /
+#     中标候选人投标文件公开 … 这些不能投，但标题同样含「法律顾问」。
+#
+#   ⑥ **webdate 是上网时间，infodate 是录入时间**，两者可能差好几年
+#      （实测有 webdate=2019 而 infodate=2025 的老公告）。
+#      排序和发布展示都用 webdate，别用 infodate。
+#
+#   ⑦ **关键词只留「法律」和「纠纷」，别再往里加词**。
+#      ES 会先分词，「法律」本身就能命中「法律顾问」「法律服务」「专项法律」
+#      （实测「法律」705 条 ⊇ 「法律顾问」165 条 ⊇ 「专项法律」149 条）。
+#      而看起来很互补的三个词，实测全是噪音，加进来只会污染雷达：
+#        律师 86 条 → 清一色「广州律师大厦二期项目监理/造价」「中华人民共和国律师法」
+#        诉讼 192 条 → 「公益诉讼检察指挥中心装修改造」「诉讼档案数字化加工」（法院信息化）
+#        合规 95 条 → 「土地合规技术服务」「数据合规体系」「合规油运」资讯
+#      唯一值得补的是「纠纷」（44 条），它能捞到标题只写
+#      「财产损害赔偿纠纷法律服务」而没出现「法律」二字的项目。
+#
+#   ⑧ **不做时间过滤**（time: null），靠时间倒序 + 页数控制深度。
+#      实测「法律」按 webdate 倒序前 60 条 = 2025-01 至今，没有更老的；
+#      而一旦加 time 窗口，增量采集时窗口只有 1 天，广州一个月才出几条法律公告，
+#      绝大多数轮次会空手而归并被判成「选择器失效」。
+#
+#   ⑨ 详情页是**静态 HTML**（/jyfw/002006/.../xxx.html），纯 curl 能拿到全文，
+#      列表给的 linkurl 是相对路径，解析层会按 base_url 补全。
+#      列表的 content 常被截断（实测 500~2300 字），采购人/预算/截止写在后半段，
+#      所以开 fetch_detail 拿完整正文。
+
+id: gzggzy
+name: 广州公共资源交易
+base_url: https://ywtb.gzggzy.cn
+enabled: true
+mode: http
+version: "1.0.0"
+schedule: "35 */3 * * *"
+
+search_url: https://ywtb.gzggzy.cn/inteligentsearch/rest/esinteligentsearch/getFullTextDataNew
+
+headers:
+  Referer: https://ywtb.gzggzy.cn/fulltext_searching.html
+
+response_type: json
+post_json: true
+# 见上面 ①：剥掉外层 {"code":200,"content":"..."} 的字符串壳
+json_unwrap: content
+json_items: "result.records"
+
+json_fields:
+  # title2 是未加高亮标签的原始标题，优先用；老数据没有就回退 title
+  title: "title2||title"
+  url: "linkurl"
+  publish_time: "webdate"
+  content: "content"
+  notice_type: "categoryname"
+  project_code: "xmbh2||xmbh"
+  external_id: "id"
+
+# 市级平台，覆盖范围恒定是广州
+static_fields:
+  province: "广东"
+  city: "广州"
+
+post_data:
+  token: ""
+  pn: "{pn}"
+  rn: "30"
+  sdt: ""
+  edt: ""
+  wd: "{keyword}"
+  inc_wd: ""
+  exc_wd: ""
+  # 只搜标题，见上面 ②
+  fields: "title"
+  # 002 = 交易服务，见上面开头
+  cnum: "002"
+  # sort 必须是**字符串形式**的 JSON，写成嵌套对象会让接口直接 500
+  sort: '{"webdate":"0"}'
+  # ssort 是「匹配度排序」，非空会盖掉 sort，拿到的是相关度最高而不是最新的
+  ssort: ""
+  cl: "3000"
+  terminal: ""
+  # 不限栏目，见上面 ③
+  condition: null
+  # 不做时间过滤：法律类公告本就稀疏，按增量时间窗去问经常一条都没有，
+  # 还会被误判成「选择器失效」。改为按时间倒序直接取最新若干页。
+  time: null
+  highlights: "title;content"
+  statistics: null
+  unionCondition: null
+  accuracy: ""
+  noParticiple: "0"
+  searchRange: null
+  isBusiness: "1"
+
+# 结果类公告挡掉，见上面 ⑤。字段名用**映射后**的 title / notice_type。
+# 广州的结果类标题花样很多：采购结果公告 / 成交结果公告 / 中标结果公告 /
+# 招标结果公示 / 成交结果公示 / 资格审查结果公示 …，所以直接按
+# 「结果公告|结果公示|候选人公示」这种后缀挡，比逐个枚举类型词稳。
+drop_if:
+  title: "(结果公告|结果公示|候选人公示|后审公示|资格审查结果|采购失败|废标|流标|终止公告|合同公示|履约验收|投标文件公开)"
+  # 「最新资讯」「市场动态」是站里的新闻栏目，也会命中「法律」二字
+  # （比如「散货船撞船事故引发法律大战」「北外滩国际法律服务港揭幕」），不是招标
+  notice_type: "(最新资讯|市场动态)"
+
+default_keyword: 法律
+keywords:
+  - 法律
+  - 纠纷
+
+delay:
+  min: 1.5
+  max: 3.0
+
+pagination:
+  type: page_param
+  param: pn
+  page_size: 30
+  # 时间倒序下每词 60 条：「法律」覆盖 2025-01 至今，见上面 ⑧
+  max_pages: 2
+
+# 列表正文被截断，开详情补全，见上面 ⑨
+fetch_detail: true
+fetch_detail_default: true
+# 详情页是静态页，正文在 div.article#detail 里
+detail_container: "div.article#detail, div.article"
+detail_fields:
+  content:
+    selectors:
+      - "div.article#detail"
+      - "div.article"
+      - "body"
+    extract: text
+# 站点不限流，实测一轮 60 条详情 90 秒内跑完且无一次 403
+detail_limit: 70
+
+# 不按时间切窗（见上面 ⑧）
+window_days: 0

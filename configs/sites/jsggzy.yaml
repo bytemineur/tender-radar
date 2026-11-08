@@ -1,0 +1,107 @@
+# 江苏省公共资源交易平台（jsggzy.jszwfw.gov.cn）—— 已实测可用（纯 HTTP）
+#
+# 【实测结论 2026-10-31】
+#   · 与陕西 sxggzy 同一套 ES 中间件，但**路径不带 `_new`**、且响应**没有
+#     content 外层包裹**（陕西是 {"code":200,"content":"{...}"}，江苏直接是
+#     {"result":{...}}），所以这里**不要配 json_unwrap**，配了反而解析失败。
+#
+#   · 分类号与陕西完全不同，必须重新探：
+#       003004002 采购公告   ← 只要这个（实测「法律顾问」命中 96 条）
+#       003004003 更正公告
+#       003004006 成交公告
+#     山西/四川那套 001001004001 在这里一条都搜不到。
+#
+#   · 字段坑：列表里 `title` 是**带 <em style='color:red'> 高亮标签**的，
+#     干净原文在 `titlenew`（陕西是 titlenew 也干净，两边一致）。
+#     时间取 `infodateformat`（YYYY-MM-DD）——`webdate` 这个字段在江苏是空的，
+#     照抄陕西的写法会拿到 None，发布时间整列丢失。
+#
+#   · 命中质量很高：村（社区）法律顾问、司法局 12348 公共法律服务、
+#     法律顾问助理服务单位采购——镇街一级的法律顾问采购是江苏的特色品类，
+#     其它省份的源里基本见不到。
+#
+#   · 响应自带正文（content），预算和截止时间由抽取层从正文提，
+#     不必再逐条取详情。
+#
+# 业务价值：省级官方平台（江苏省政务服务管理办公室），覆盖省本级 + 13 个
+# 设区市的政府采购，法律类公告密度高于多数省级源。
+
+id: jsggzy
+name: 江苏公共资源交易
+base_url: https://jsggzy.jszwfw.gov.cn
+enabled: true
+mode: http
+version: "1.0.0"
+schedule: "0 */4 * * *"
+
+search_url: "https://jsggzy.jszwfw.gov.cn/inteligentsearch/rest/esinteligentsearch/getFullTextDataNew"
+
+response_type: json
+post_json: true
+# 注意：江苏的响应没有 content 包裹层，不要加 json_unwrap
+json_items: "result.records"
+
+json_fields:
+  # 用 titlenew：title 里全是 <em> 高亮标签
+  title: "titlenew"
+  url: "linkurl"
+  # webdate 在江苏恒为空，取 infodateformat（YYYY-MM-DD）
+  publish_time: "infodateformat"
+  content: "content"
+  notice_type: "categoryname"
+
+static_fields:
+  province: "江苏"
+
+post_data:
+  token: ""
+  pn: "{pn}"
+  rn: "20"
+  sdt: ""
+  edt: ""
+  wd: "{keyword}"
+  inc_wd: ""
+  exc_wd: ""
+  # 只搜标题。正文里「依照相关法律法规」这类表述会把无关采购全捞进来
+  fields: "title"
+  cnum: "001"
+  sort: '{"webdate":"0"}'
+  ssort: ""
+  cl: "3000"
+  terminal: ""
+  # 钉死「采购公告」，挡掉更正/成交/结果三类
+  condition:
+    - equal: "003004002"
+      equalList: null
+      fieldName: "categorynum"
+      notEqual: null
+      notEqualList: null
+  time: null
+  highlights: "title;content"
+  statistics: null
+  unionCondition: null
+  accuracy: ""
+  noParticiple: "0"
+  searchRange: null
+
+# ES 会先分词，搜「法律」本身就能命中「法律顾问」「法律服务」
+default_keyword: 法律
+keywords:
+  - 法律
+  - 律师
+  - 诉讼
+
+delay:
+  min: 1.5
+  max: 3.0
+
+pagination:
+  type: page_param
+  param: pn
+  page_size: 20
+  max_pages: 2
+
+# 接口已回正文（cl=3000），不必再打详情
+fetch_detail: false
+
+window_days: 0

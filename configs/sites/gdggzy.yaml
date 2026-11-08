@@ -1,0 +1,104 @@
+# 广东省公共资源交易平台（ygp.gdzwfw.gov.cn）—— 已实测接口可用
+#
+# 【实测结论 2026-10-22】
+#   · 门户首页有一个干净的 JSON 接口（无需登录、无需 cookie）：
+#       POST https://ygp.gdzwfw.gov.cn/ggzy-portal/search/v2/items
+#     请求体形如
+#       {"pageNo":1,"pageSize":30,"type":"trading-type","siteCode":"44",
+#        "secondType":"","publishStartTime":"20261022000000","publishEndTime":"20261022235959"}
+#     响应 data.pageData[] 字段很全：noticeTitle / publishDate / siteName /
+#     regionName / noticeSecondTypeDesc / projectCode / docId ...
+#
+#   · 重要限制（已经试过一轮，别再浪费时间）：
+#     这个接口**不接受关键词参数**。穷举过 keyword / title / noticeTitle /
+#     searchWord / searchName / query / param 等十余种写法，返回的 total 纹丝不动
+#     （212417），说明搜索侧的建接口是另一条路径，前端 bundle 里也没暴露。
+#     所以本源改为：拉全量分页列表，再用 local_filter 在本地按 keywords 筛标题。
+#     代价是无用请求多一些（已用 pageSize+短时间窗+命中即停来控制）。
+#
+#   · 时间参数格式是 YYYYMMDDHHmmss，与别的站都不一样，注意别写成 "YYYY-MM-DD"。
+#
+#   · secondType：D=政府采购，A=工程建设，B=土地矿业权，C=产权交易。
+#     法律服务集中在 D（政府采购），这里就只盯 D。
+
+id: gdggzy
+name: 广东公共资源交易
+base_url: https://ygp.gdzwfw.gov.cn
+enabled: true
+mode: http
+version: "1.0.0"
+schedule: "40 */4 * * *"
+
+search_url: "https://ygp.gdzwfw.gov.cn/ggzy-portal/search/v2/items"
+
+response_type: json
+json_items: "data.pageData"
+
+json_fields:
+  title: "noticeTitle"
+  publish_time: "publishDate"
+  notice_type: "noticeSecondTypeDesc"
+  url: "linkUrl"          # 实测恒为 null，真正能用的链接走下面的模板
+  notice_id: "noticeId"
+  project_code: "projectCode"
+  biz_code: "bizCode"
+  biz_site: "siteCode"
+
+# 列表返回的 linkUrl 一直是 null；详情页是 hash 路由，
+# 实测链接形如（用浏览器点开列表项抓到的）：
+#   index.html#/44/new/jygg/v3/A?noticeId=…&projectCode=…&bizCode=…&siteCode=…&publishDate=…
+url_template: "https://ygp.gdzwfw.gov.cn/ggzy-portal/index.html#/44/new/jygg/v3/A?noticeId={notice_id}&projectCode={project_code}&bizCode={biz_code}&siteCode={biz_site}"
+
+# 本平台只覆盖广东省，列表里的 regionName 是市（广州/惠州），
+# 直接给常量，不让抽取层去标题里瞎猜
+static_fields:
+  province: "广东"
+
+# 注意是 JSON body（application/json），不是表单；发表单会被拒：
+#   errcode 10301 "Content type 'application/x-www-form-urlencoded' not supported"
+post_json: true
+post_data:
+  type: "trading-type"
+  siteCode: "44"
+  secondType: "D"
+  pageNo: "{page}"
+  pageSize: "50"
+  publishStartTime: "{start_compact}000000"
+  publishEndTime: "{end_compact}235959"
+
+# 站端不支持关键词检索 → 拉列表后本地过滤
+local_filter: true
+default_keyword: 法律服务
+keywords:
+  - 法律服务
+  - 法律顾问
+  - 诉讼代理
+  - 司法辅助
+  - 律师服务
+  - 法律援助
+
+# 该站频控很紧：实测连打几个请求就返回
+#   {"errcode":429,"errmsg":"访问频率过高，请16秒后重试"}
+# 而且是 HTTP 200 + JSON 信封，光看状态码会当成「正常但没数据」。
+# 所以间隔必须放宽到 5 秒以上，配合 7 天窗口把单轮请求数压下来。
+delay:
+  min: 5.0
+  max: 9.0
+
+pagination:
+  type: page_param
+  param: pageNo
+  # 实测第 4 页起恒返回空，单次查询最多读到前 3 页（约 150 条）。
+  # 所以要靠 window_days 把大区间切成小窗口，每个窗口都落在上限内。
+  max_pages: 3
+
+# 单次查询只给前 3 页（约 150 条）。窗口越短、每页覆盖的那批数据就越接近完整，
+# 所以这里用 1 天一窗；首轮回填 7 天 = 7 窗 × 3 页 ≈ 21 次请求。
+window_days: 1
+lookback_days: 7
+
+# ── 说明：为什么没有 detail_* ────────────────────────────
+# 该站的 linkUrl 字段在列表里基本为 null，正文要拿 docId 去拼详情页：
+#   https://ygp.gdzwfw.gov.cn/ggzy-portal/index.html#/44/noticeDetail?docId=xxx
+# 那条是前端路由，正文同样走异步接口。列表信息已足够做线索判断，
+# 这里先不碰详情，避免为一个字段去逆向它的详情页接口。

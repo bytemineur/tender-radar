@@ -1,0 +1,67 @@
+# 应用配置
+# 环境变量优先级高于本文件，生产环境建议用环境变量注入敏感项
+
+app_name: 招标雷达
+
+# 数据库。默认 SQLite（零运维）；生产建议 PostgreSQL：
+#   database_url: postgresql://tender:pass@127.0.0.1:5432/tender
+database_url: ""
+
+# 调度
+scheduler_enabled: true
+scheduler_interval_min: 120     # 每 2 小时增量一次
+crawl_on_startup: false          # 启动时是否立刻跑一轮
+
+# 关键词订阅：命中即推送（webhook 见环境变量 TR_NOTIFY_WEBHOOK）
+watch_keywords:
+  - 法律服务
+  - 法律顾问
+  - 诉讼代理
+  - 法律援助
+  - 合规
+
+crawl:
+  min_delay: 2.0                 # 随机间隔下限（秒），不要低于 1
+  max_delay: 5.0
+  timeout: 25.0
+  max_retries: 3                 # 指数退避 1s / 4s / 16s
+  max_pages: 5
+  browser_fallback: true         # HTTPX 失败时降级 Playwright（需安装）
+  llm_fallback: false            # 规则抽不到时用 LLM 兜底（需配置 API）
+
+# ── 账号与登录 ────────────────────────────────────────
+# 邮箱 + 验证码登录，不设密码。目前不限制注册：任意邮箱验证后即自动建号。
+auth:
+  # 管理员邮箱（小写）。这些账号登录后进入「管理」后台，其余账号一律普通用户。
+  # 生产环境建议改用环境变量 TR_ADMIN_EMAILS 注入，不要写进版本库。
+  # 环境变量优先级高于本文件（见 app/config.py），两边不一致时以 .env 为准。
+  admin_emails:
+    - zhanghuihua@easylawsuit.cn
+  session_days: 7                # 登录态有效期（天）
+  require_login: true            # 关掉则数据接口完全开放（仅本地调试用）
+
+  # ── 邮箱验证码登录（默认启用，代码里强制校验）──────────
+  # 六项 SMTP 全配才真发信；缺一项就降级到「开发模式」：验证码只写日志
+  # 并由 /api/auth/code 回显给前端 —— 公网部署等于门禁失效，别这么上线。
+  code_ttl: 600                  # 验证码有效期（秒）
+  code_len: 6
+  code_interval: 60              # 同一邮箱两次发码的最小间隔（秒）
+  smtp_host: ""
+  smtp_port: 465
+  smtp_ssl: true                 # 465 用 true；587 用 false（走 STARTTLS）
+  smtp_user: ""
+  smtp_pass: ""
+  mail_from: ""                  # 留空则用 smtp_user
+
+# ── 收费（预留）──────────────────────────────────────
+# 现在只有 free 档生效；打开 enabled 后后台会显示「套餐与收入」面板，
+# 但因为没有接入支付，收入一律显示 0，不编造数字。
+billing:
+  enabled: false
+  # 可用档位：free / pro / team，写在这里只覆盖价格与文案
+  # plans:
+  #   pro:
+  #     price: 99
+  #     quota_monthly: 2000
+  #     desc: 每月 2000 条线索额度，含关键词订阅推送
+  #     available: true

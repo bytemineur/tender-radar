@@ -1,0 +1,121 @@
+# 深圳公共资源交易平台（szggzy.com）—— 本地核心源，已实测可用
+#
+# 【实测结论 2026-10-22】
+#   · 首页 www.szggzy.com 是个只有 398 字节的跳转壳，
+#     真实页面在 /static/index.html，且列表完全由接口驱动。
+#   · 列表接口（POST JSON，无需登录）：
+#       https://www.szggzy.com/cms/api/v1/trade/content/page
+#     首页首屏那几个栏目都调它，只是 channelId / fields 不同。
+#   · 三个参数必须同时给对，缺一个就会把「中标公告」也混进来：
+#       channelId: 2850                                    政府采购
+#       fields:    {jygg_gglxmc_rank1 = 采购公告}            只要采购公告
+#       title:    "法律"                                    按标题模糊匹配
+#     实测三者齐备 → total 249 条，且全是法律顾问/诉讼代理类。
+#   · 详情页是**静态 HTML**（zfcg.szggzy.com:8081/gsgg/...），
+#     纯 curl 就能拿到完整正文，正文里直接写着
+#     「项目预算：¥1,256,100.00」和「于2026年10月14日09:00前递交投标文件」，
+#     是本系统里少见的「预算+截止都能拿全」的高质量源。
+#   · 列表字段里 url 和 linkTo 都有，但老数据只有 linkTo，
+#     所以 json_fields 里写成 "url||linkTo" 让它自动回退。
+#
+# 业务价值：深圳本地法律顾问/常年顾问项目几乎都在这里首发，
+# 对深圳律所来说是所有源里命中率最高的一个。
+
+id: szggzy
+name: 深圳公共资源交易
+base_url: https://www.szggzy.com
+enabled: true
+mode: http
+version: "1.0.0"
+schedule: "10 */3 * * *"
+
+search_url: "https://www.szggzy.com/cms/api/v1/trade/content/page"
+
+response_type: json
+post_json: true
+json_items: "data.content"
+
+json_fields:
+  title: "title"
+  url: "url||linkTo"
+  publish_time: "publishTime"
+  purchaser: "purchaseMan"
+  notice_type: "appNoticeTypeName"
+  project_name: "projectName"
+
+static_fields:
+  province: "广东"
+
+post_data:
+  channelId: 2850
+  fields:
+    fieldName: "jygg_gglxmc_rank1"
+    fieldValue: "采购公告"
+  title: "{keyword}"
+  # 刻意不做时间过滤：深圳的法律类采购本来就稀（实测一个月才 1~2 条），
+  # 按增量时间窗去问几乎必然空手而归，还会被误判成「选择器失效」。
+  # 这里直接按发布时间倒序取最新的若干页，重复的交给去重层。
+  releaseTimeBegin: null
+  releaseTimeEnd: null
+  page: "{page0}"
+  size: 20
+  parentBusinessType: "政府采购"
+  siteId: 1
+
+# 关键词刻意只留三个互补的短词：
+# title 是按子串匹配的，「法律顾问」「法律顾问服务」都含「法律」，
+# 再把「法律顾问」单列一遍只会让同一批公告被翻两遍（去重后净增为 0，白白多发请求）。
+# 「律师」「诉讼」则互补——有些标题写「外聘律师服务」，里面根本没有「法律」二字。
+default_keyword: 法律
+keywords:
+  - 法律
+  - 律师
+  - 诉讼
+
+delay:
+  min: 1.5
+  max: 3.0
+
+pagination:
+  type: page_param
+  param: page
+  page_size: 20
+  # 只取最新一页：深圳法律类公告一个月才 1~2 条，
+  # 最新 20 条已经能覆盖好几个月，翻页既慢又大多重复。
+  max_pages: 1
+
+# 预算和截止时间都在详情页正文里，必须逐条取
+fetch_detail: true
+fetch_detail_default: true
+
+# ── 详情页（静态页，纯 HTTP 即可）──────────────────────────
+detail_container: "div.news-article, div.ewb-article"
+
+detail_fields:
+  content:
+    selectors:
+      - "div.news-article"
+      - "div.ewb-article"
+      - "div.container"
+    extract: text
+  deadline:
+    selectors:
+      - "div.news-article"
+      - "div.ewb-article"
+      - "div.container"
+    extract: text
+    regex: "(?:递交投标文件|递交响应文件|递交截止时间|投标截止时间|响应截止时间|开标时间)[^0-9]{0,30}(\\d{4}[-/年.]\\d{1,2}[-/月.]\\d{1,2})"
+  budget:
+    selectors:
+      - "div.news-article"
+      - "div.ewb-article"
+      - "div.container"
+    extract: text
+    regex: "(?:项目预算|预算金额|采购预算|最高限价)[^0-9]{0,12}[\\d,\\.]+\\s*(?:亿元|万元|万|元)"
+  purchaser:
+    selectors:
+      - "div.news-article"
+      - "div.ewb-article"
+      - "div.container"
+    extract: text
+    regex: "(?:采购人|采购单位|招标人|招标单位)[^\\u4e00-\\u9fa5]{0,4}([\\u4e00-\\u9fa5（）()、A-Za-z0-9]{4,40})"

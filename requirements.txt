@@ -1,0 +1,32 @@
+# 招标雷达 Tender Radar — 运行依赖
+# 最小化依赖，便于部署到任意服务器
+#
+# ⚠️ Python 版本：用 3.11 / 3.12 / 3.13，**不要用 3.14**。
+# 3.14 太新，SQLAlchemy 2.0.x 还没发 cp314 轮子，装的时候会报
+#   ERROR: Could not find a version that satisfies the requirement sqlalchemy>=2.0.30
+#   ERROR: No matching distribution found for sqlalchemy>=2.0.30
+# （"from versions: none" 不是说索引挂了，是说没有兼容当前 Python 的版本）。
+# Docker 镜像用的是 python:3.12-slim，裸机部署照这个版本建环境即可：
+#   python3.12 -m venv .venv    或    conda create -n tr python=3.12
+
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+sqlalchemy>=2.0.30
+pydantic>=2.7.0
+httpx>=0.27.0
+parsel>=1.9.0            # CSS/XPath/正则选择器（含 lxml + cssselect）
+pyyaml>=6.0.1
+apscheduler>=3.10.4
+python-dateutil>=2.9.0
+python-multipart>=0.0.9
+
+# 取页必需：中国政府采购网等站点有 WAF，纯 HTTP 一定被拦，
+# 必须用真浏览器渲染。本地会自动复用已装的 Chrome/Edge（不下载）；
+# 容器内用 `playwright install chromium` 装一次即可。
+playwright>=1.44.0
+
+# 可选（按需安装）
+# ---------------------------------------------------------------
+# ddddocr>=1.4.11        # 验证码自动识别（CaseBoard 同款）
+# psycopg2-binary>=2.9.9 # 切换到 PostgreSQL 时用
+# openai>=1.30.0         # LLM 兜底抽取（任意 OpenAI 兼容接口）

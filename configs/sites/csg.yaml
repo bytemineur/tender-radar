@@ -1,0 +1,93 @@
+# 南方电网供应链统一服务平台（bidding.csg.cn）—— 央企采购平台，已实测可用
+#
+# 【实测结论 2026-10-22】
+#   · 纯 HTTP GET 可用，不需要登录、不需要 cookie、不需要浏览器。
+#   · 搜索入口是 /dbsearch.jspx（不是 /search.jspx，后者是站内全文检索，噪音大）。
+#     参数只有三个：q（标题关键词）、types（类别）、org（网省）、pageNo（分页）。
+#   · q 是按标题匹配的：搜「法律」能稳定召回「法律顾问 / 法律专项服务 / 诉讼代理」，
+#     搜「法律服务」反而会漏（标题里常写作「法规专业法律专项服务」），
+#     所以关键词列表里刻意放了短词。
+#   · types=服务 能把范围收在服务类，法律服务都在这里面。
+#   · 每页 15 条，pageNo 从 1 开始；页数很少超过 2 页，够用了。
+#   · 详情页是静态 .jhtml：标题 h1.s-title、发布时间 div.s-date、正文 div.Content。
+#     正文里写的是 Word 转出来的内联样式，纯文字抽取不受影响。
+#
+# 与其他源的分工：它是**唯一**能覆盖央企（南方电网及其各省电网公司、
+# 鼎和财产保险、南方鼎元资产等二级单位）法律服务采购的入口。
+# ccgp / ggzy 只覆盖财政条线的政府采购。
+
+id: csg
+name: 南方电网采购平台
+base_url: https://www.bidding.csg.cn
+enabled: true
+mode: http
+version: "1.0.0"
+schedule: "40 */3 * * *"
+
+# types=服务：法律服务招标都归入「服务」类别
+search_url: "https://www.bidding.csg.cn/dbsearch.jspx?q={keyword}&types=服务&pageNo={page}"
+
+response_type: html
+
+default_keyword: 法律
+keywords:
+  - 法律
+  - 法律顾问
+  - 诉讼
+  - 律师
+
+list_container: "div.List2 ul li"
+
+list_fields:
+  title:
+    selectors: ["a[target=_blank]"]
+    extract: text
+  url:
+    selectors: ["a[target=_blank]"]
+    extract: "attr:href"
+  # span.Right 里是「栏目 | 2026-10-22」，取日期那一格
+  publish_time:
+    selectors: ["span.Right span.Gray"]
+    extract: text
+    regex: "\\d{4}-\\d{1,2}-\\d{1,2}"
+  # 左侧蓝色链接就是采购单位（广西电网公司 / 深圳供电局有限公司 …）
+  purchaser:
+    selectors: ["a.Blue"]
+    extract: text
+
+# 列表页不披露预算与截止时间，必须逐条看详情
+fetch_detail: true
+fetch_detail_default: true
+
+delay:
+  min: 1.5
+  max: 3.0
+
+pagination:
+  type: page_param
+  param: pageNo
+  max_pages: 2
+
+# ── 详情页 ────────────────────────────────────────────────
+detail_container: "div.s-content"
+
+detail_fields:
+  content:
+    selectors: ["div.Content", "div.s-content"]
+    extract: text
+  deadline:
+    selectors: ["div.Content"]
+    extract: text
+    regex: "(?:递交截止时间|投标截止时间|响应截止时间|报价截止时间|开标时间|截止时间)[^0-9]{0,24}(\\d{4}[-/年.]\\d{1,2}[-/月.]\\d{1,2})"
+  budget:
+    selectors: ["div.Content"]
+    extract: text
+    regex: "(?:预算金额|采购预算|项目预算|最高限价|招标控制价)[^0-9]{0,12}[\\d,\\.]+\\s*(?:亿元|万元|万|元)"
+  purchaser:
+    selectors: ["div.Content", "div.s-content"]
+    extract: text
+    # 正文里写作「采购人 为 广东电网有限责任公司」（字间还带空格）。
+    # 「为」是中文，会被下面的字符类当成单位名的一部分捕获，
+    # 结果存成「为广东电网有限责任公司」—— 41 条数据就是这样错的。
+    # 所以在跳过非中文字符之后，还要额外吃掉一个「为」。
+    regex: "(?:采购人|招标人|招标单位|采购单位)[^\\u4e00-\\u9fa5]{0,4}为?\\s*([\\u4e00-\\u9fa5（）()、A-Za-z0-9]{4,40})"

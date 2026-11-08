@@ -1,0 +1,108 @@
+# 大唐集团电子商务平台（tang.cdt-ec.com）—— 已实测可用
+#
+# 【实测结论 2026-10-25】
+#   · 中国大唐集团**官方**招标平台（运营主体：大唐电商技术有限公司，京ICP备16030609号）。
+#     不是第三方聚合站，数据口径可靠。
+#
+#   · ⚠️ **全站挂阿里云 WAF**（响应头 set-cookie: acw_tc，页面里是 aliyunwaf 的
+#     acw_sc__v2 JS 挑战）。裸 httpx 无论 GET 还是 POST，一律拿回 17136 字节的
+#     挑战页，接口 /notice/moreController/getList 也一样被挡（这点与 sgcc 不同，
+#     国网的 JSON 接口是不设防的）。所以必须 mode: browser。
+#
+#   · ⚠️ **光走 Chromium 网络栈也不够**。context.request.get 发请求不执行 JS，
+#     永远算不出 acw_sc__v2，重试几次都没用（实测冷启动 100% 被拦）。
+#     必须先 page.goto 真打开一次页面让挑战脚本跑完 —— 这就是 warmup_url 的作用。
+#     实测：预热后连打 5 次全部 200。cookie 落在共享 context 上，本轮一直有效。
+#
+#   · ✅ 列表接口**支持服务端关键词过滤**（message_title 标题子串），
+#     所以不用 local_filter 拉全量本地筛（这点比 sgcc / chnenergy / crecg 都强）。
+#     实测命中：法律 23 / 法律顾问 5 / 纠纷 2 / 仲裁 2 / 诉讼 1 / 法务 1 / 律师 0。
+#     命中率远高于其他源（国能是 1/750），值得给足关键词。
+#
+#   · ✅ 接口字段很全，**不需要抓详情**：
+#       message_title 标题 / message_no 招标编码 / bid_tenderer 招标单位（采购人）
+#       publish_time 发布时间 / deadline 截止时间 / id
+#     ⚠️ deadline 是「**招标文件售卖截止时间**」，比真实投标截止早（同国能的坑），
+#     但过了买标书的时间本来就投不了，保守一点可以接受。
+#   · ❌ 详情页 /notice/moreController/moreall?id=xxx 不值得抓：正文是
+#     flash 插件渲染的 PDF，"公告内容(需要浏览器启用flash插件…请下载PDF版查看)"，
+#     HTML 里只有「招标方式/资格审查/项目区域」几项元信息，正文一个字没有。
+#     所以 fetch_detail: false，省下每轮几十次白打的请求。
+#
+#   · 参数是 layui table 发出来的，**GET / POST 都吃**（实测 GET 更好用，能直接
+#     拼进 search_url 带 {keyword}{page} 占位符）。
+#     ⚠️ 但 startDate 和 endDate **必须出现在 query string 里**（可以是空值），
+#     缺任一个后端直接 500（nginx 错误页）。所以 URL 末尾那两个空参数别删。
+#
+#   · globleType 对应栏目：0 招标公告 / 1 变更 / 2 中标候选人公示 / 3 中标结果 /
+#     4 采购公告(非招标) / 5 采购结果 / 21 终止 / 22 流标 / 25 合同公示 / 31 计划公示。
+#     本源只取 0（招标公告）。
+#     注意列表页那个 globleType 是从 sessionStorage.indexss 读的 —— 那是**页面**的事，
+#     我们直接打接口、messagetype 写在 URL 里，不受影响。
+#
+#   · 全站 27407 条招标公告，limit 实测可到 200。
+
+id: datang
+name: 大唐集团电子商务平台
+base_url: https://tang.cdt-ec.com
+enabled: true
+mode: browser
+response_type: json
+version: "1.0.0"
+# */3 满档；*/4 已用 0(flzb) / 5(crcc) / 25(chnenergy) / 40(gdggzy)，这里取 50。
+schedule: "50 */4 * * *"
+
+# 预热：先用真浏览器打开栏目页，让 WAF 挑战脚本把 acw_sc__v2 写进 context。
+# 这一行是这个源能不能跑起来的关键，别删。
+warmup_url: "https://tang.cdt-ec.com/notice/moreController/toMore?globleType=0"
+
+# 列表接口（GET）。末尾 startDate/endDate 必须是空串不能省略，否则后端 500。
+search_url: >-
+  https://tang.cdt-ec.com/notice/moreController/getList
+  ?page={page}&limit=50&messagetype=0&message_title={keyword}&startDate=&endDate=
+
+headers:
+  Referer: https://tang.cdt-ec.com/notice/moreController/toMore?globleType=0
+  X-Requested-With: XMLHttpRequest
+
+json_items: data
+json_fields:
+  title: message_title
+  publish_time: publish_time
+  external_id: id
+  # 接口直接给了招标单位，省掉详情请求
+  purchaser: bid_tenderer
+  # 招标文件售卖截止时间（比投标截止早，见头部结论）
+  deadline: deadline
+  project_no: message_no
+
+# 接口不返回详情链接，用 id 拼。详情页虽然不抓，但列表页「打开来源」要用。
+url_template: "https://tang.cdt-ec.com/notice/moreController/moreall?id={external_id}"
+
+default_keyword: 法律
+keywords:
+  - 法律
+  - 法律顾问
+  - 律师
+  - 诉讼
+  - 法务
+  - 纠纷
+  - 仲裁
+# 刻意不收「合规」：实测命中 21 条，但点开全是「用地合规性技术咨询」
+# 「信息威胁合规性评估」这类工程/安全类采购，与法律服务无关，加了只会淹没真线索。
+# （律师实测 0 命中，但成本为零且将来可能有，保留。）
+
+# 服务端按关键词过滤，命中量小：「法律」23 条一页就装完了。
+pagination:
+  type: page_param
+  param: page
+  page_size: 50
+  max_pages: 2
+
+# 详情是 flash/PDF，抓了也没正文
+fetch_detail: false
+fetch_detail_default: false
+
+delay:
+  min: 2.0
+  max: 4.0

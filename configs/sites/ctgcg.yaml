@@ -1,0 +1,82 @@
+# 中国三峡集团电子采购平台 · 采购公告（eps.ctg.com.cn）—— 已实测可用（纯 HTTP）
+#
+# 与 ctg.yaml 同源同构，只有栏目位不同（2ywgg1 = 采购公告）。
+# 拆成两个配置的原因同 szecp / szecpcg：一个 search_url 只能带一个栏目，
+# 而「招标公告」和「采购公告」是两条独立的列表。
+#
+# 【实测结论 2026-10-31】
+#   · 2ywgg1 的实测首条：长江电力物资供应商公开寻源项目公告 /
+#     2026-2028 年度天台抽水蓄能电站特种设备检验重新采购公告。
+#   · 翻页、列表项结构、详情容器与 ctg 完全一致（同一个 CMS），
+#     所以选择器照抄即可，改的是 search_url 里的栏目串。
+#   · 法律类命中同样很低（央企通病），保留是因为采购频道里
+#     「法律服务/咨询」类目的比例通常高于工程招标频道。
+
+id: ctgcg
+name: 三峡集团电子采购平台·采购公告
+base_url: https://eps.ctg.com.cn
+enabled: true
+mode: http
+version: "1.0.0"
+schedule: "45 */4 * * *"
+
+# 2ywgg1 = 采购公告
+search_url: "https://eps.ctg.com.cn/cms/channel/2ywgg1/index.htm?pageNo={page}"
+
+response_type: html
+
+list_container: "ul#list1 > li"
+
+list_fields:
+  title:
+    selectors:
+      - "a"
+    extract: attr:title
+  url:
+    selectors:
+      - "a"
+    extract: attr:href
+  publish_time:
+    selectors:
+      - "a"
+    extract: text
+    regex: "(\\d{4}-\\d{2}-\\d{2})"
+
+static_fields:
+  province: ""
+  industry: "法律服务"
+  notice_type: "采购公告"
+
+local_filter: true
+default_keyword: 法律
+keywords:
+  - 法律
+  - 法律顾问
+  - 法律服务
+  - 诉讼
+  - 律师
+  - 法务
+
+delay:
+  min: 2.0
+  max: 4.0
+
+pagination:
+  type: page_param
+  param: page
+  page_size: 10
+  # 实测 20 页 = 200 条里 4 条法律类（常年法律顾问 / 法律案件风险代理 /
+  # 境外项目仲裁案专项法律服务），命中率约 2%，是招标频道（0/200）的
+  # 几十倍。20 页 ≈ 三峡一个多月的发布量，配每 4 小时一轮足够覆盖。
+  max_pages: 20
+
+fetch_detail: true
+detail_limit: 20
+detail_container: "div.main-text"
+detail_fields:
+  content:
+    selectors:
+      - "div.main-text"
+    extract: text
+
+lookback_days: 0

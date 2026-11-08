@@ -1,0 +1,128 @@
+# 国能e招（国家能源集团招标与采购平台）—— 已实测可用
+#
+# 【实测结论 2026-10-25】
+#   · 这是**国家能源集团官方平台**（www.chnenergybidding.com.cn），不是第三方聚合站
+#     （对比：crecg / crcc 两家是电力招标网 dlzb.com 的聚合页）。数据口径可靠。
+#   · 技术上非常友好：**全站静态 HTML，纯 GET**，无登录、无 cookie、无反爬，
+#     连 Referer 都不挑，httpx 直连即可，不需要浏览器。
+#     后端是 Java CMS（bidcms / PrimeFaces），但列表页与详情页**都是服务端渲染好的静态页**，
+#     不存在 XHR 接口——别去找 JSON 接口，没有。
+#   · 列表页：`/bidweb/001/001002/{page}.html`，15 条/页，按发布日期倒序，
+#     共 9632 页（历史全量）。**page 1 直接用 `1.html` 就行**，和 `moreinfo.html`
+#     内容一致，所以不需要 first_page_url（这点与 crcc 不同）。
+#   · 分页链接是**普通 <a href>**，不是 JS 翻页：`<a class="alink" href="/bidweb/001/001002/2.html">`。
+#   · 详情链接形如 `/bidweb/001/001002/001002002/20261024/<uuid>.html`，
+#     路径里第三段是标的分类：001=货物 / 002=工程 / 003=服务。
+#
+#   · ✅ **详情页可以抓**（与 crecg / crcc 不同！那两家的详情在 dlzb.com 被 WAF 拦）。
+#     正文容器 `div.con`，含招标人、招标代理机构、投标截止时间。
+#     ⚠️ 但 **body 里的截止时间会取到「招标文件购买截止」而不是「投标截止」**：
+#     正文出现顺序是先「招标文件购买截止时间2026-10-30」后
+#     「投标文件递交的截止时间…及开标时间为2026-11-16」，
+#     而 extract.py 的 _DEADLINE_PAT 取**最左边**的匹配。
+#     结果偏保守（比真实投标截止早约 2 周），不是错误——过了买标书的时间
+#     本来就投不了，所以保留默认行为，不强行覆盖（row["deadline"] 只是兜底，
+#     覆盖不了 body 规则）。
+#
+#   · **没有站内搜索**。列表页只有一个隐藏的 `currentcate` 和一个空 `target` 输入框，
+#     没有 form。所以走 `local_filter` 拉全量 + 本地筛标题（同 crecg / gdggzy）。
+#   · 发布量约 **28 条/天**（50 页 750 条覆盖 2026-09-28~10-24，27 天）。
+#     法律类命中率约 1/750 —— 真实命中的那条是
+#     「电力工程龙源工程2026-2027年度**法律纠纷案件服务**公开招标项目（第2次）」，
+#     相当对口。
+#
+# 栏目选择（分类码，都可用）：
+#   001002 招标公告  ← 本源用这个（全量招标，不做标的分类假设）
+#   001001 资格预审公告 / 001003 非招标公告 / 001004 变更公告
+#   001005 候选人公示 / 001006 中标公告 / 001007 终止公告
+#   001009 招标计划 / 001010 招标文件公示
+#   001002 下面再分：001002001 货物 / 001002002 工程 / 001002003 服务
+#   ⚠️ 实测**不要改用 001002003（服务）来省请求**：虽然它只有 11.5 条/天、
+#     密度是全部的 3 倍，但要赌「法律服务一定被归类到服务」。
+#     实测 001002 全量扫 27 天只出 1 条法律类，且确实落在服务里——
+#     样本太小不足以当结论，全量扫更稳，而请求成本本来就低（静态页）。
+#   ⚠️ 实测**不要加 001003（非招标公告）**：300 条只覆盖到 2025-05-23
+#     （更新极慢，17 个月才 300 条），且 0 条法律类命中。
+
+id: chnenergy
+name: 国能e招（国家能源集团）
+base_url: https://www.chnenergybidding.com.cn
+enabled: true
+mode: http
+version: "1.0.0"
+# */3 的分钟档已全被占满；*/4 已用 0(flzb) / 5(crcc) / 40(gdggzy)，这里取 25。
+# 10 页 ≈ 5 天的发布量，配每 4 小时一轮重叠充足。
+schedule: "25 */4 * * *"
+
+# page 1 就是 1.html，与 moreinfo.html 等价，无需 first_page_url
+search_url: "https://www.chnenergybidding.com.cn/bidweb/001/001002/{page}.html"
+
+response_type: html
+
+# 列表结构：
+#   <li class="right-item clearfix">
+#     <div class="r-block l">
+#       <a href="..."><span class="author">CEZB260408993</span></a>   ← 项目编号
+#       <a href="..." class="infolink" title="标题">标题</a>           ← 标题 + 详情链接
+#     </div>
+#     <span class="r">2026-10-24</span>                                ← 发布日期
+list_container: "ul.right-items li.right-item"
+
+list_fields:
+  title:
+    selectors: ["a.infolink"]
+    extract: text
+  url:
+    selectors: ["a.infolink"]
+    extract: "attr:href"
+  publish_time:
+    selectors: ["span.r"]
+    extract: text
+    regex: "\\d{4}-\\d{1,2}-\\d{1,2}"
+
+# 站端不支持关键词检索 → 拉列表后本地过滤
+local_filter: true
+default_keyword: 法律
+keywords:
+  - 法律
+  - 法律顾问
+  - 法律服务
+  - 诉讼
+  - 律师
+  - 法务
+  - 纠纷
+  - 仲裁
+# 刻意不收「咨询」「评估」「合规」「审计」：实测 300 条里「咨询」命中 7~15 条、
+# 「评估」命中 1~4 条，但点开全是「工程技术咨询」「环境影响评价」这类工程类采购，
+# 放进來只会淹没真正的法律类线索；「合规」「审计」在 300 条里 0 命中，加了也没用。
+# 唯一的 1 条法律类命中已被「法律」「纠纷」两个词覆盖到。
+
+delay:
+  min: 1.5
+  max: 3.0
+
+pagination:
+  type: page_param
+  param: page
+  page_size: 15
+  # 10 页 = 150 条 ≈ 5.4 天发布量（本站约 28 条/天）。
+  # 配每 4 小时一轮，新公告在窗口里能停留 5 天，不会漏。
+  max_pages: 10
+
+# ✅ 与 crecg / crcc 不同：本源详情页能抓，而且值得抓——
+# 正文里有招标人、招标代理机构、投标截止时间，列表页只有标题+日期。
+# 开了详情，命中条目才有采购人和截止时间（crecg / crcc 那两家这两项永远是空的）。
+fetch_detail: true
+fetch_detail_default: true
+
+# 容器要取 `div.article` 而不是 `div.con`：
+# parse_detail 的选择器是**限定在 detail_container 内部**查找的，
+# div.con 只是正文那一块，取它虽然能拿到 content，但后续想再加字段就取不到了。
+# div.article = 标题 + 元信息 + 正文，范围刚好。
+detail_container: "div.article"
+
+detail_fields:
+  # 正文。extract.py 会用它自动抽 采购人（正文写「招标人为…」）/ 代理机构 / 截止时间。
+  content:
+    selectors: ["div.con"]
+    extract: html

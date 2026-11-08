@@ -1,0 +1,116 @@
+# 全国公共资源交易平台（陕西省）—— 已实测可用（纯 HTTP，无需浏览器）
+#
+# 【实测结论 2026-10-22】
+#   · 站点是静态政务站（列表页 /jydt/.../subPage.html），抠 DOM 也能拿，
+#     但真正好用的是它挂在首页「全文检索」后面的 ES 接口：
+#       POST /inteligentsearch_new/rest/esinteligentsearch/getFullTextDataNew
+#     无需登录、无需 cookie、无频控，一次请求能把标题+正文+链接全带回来。
+#   · 三个必须踩准的点，错一个就返回 totalcount=0：
+#     1) 关键词 wd **不能** URL 编码。页面 JS 里那句 encodeURIComponent 是
+#        写进 JSON 串之前的动作，直接照抄去编码，服务端什么都搜不到。
+#     2) cnum 只有 3 位。001 = 交易信息（采购公告在这下面），
+#        003/005/006… 全是供应商/代理机构主体库，搜到的全是律所名字。
+#     3) 光靠 cnum=001 仍会混进「合同公示/履约验收/结果公告」，
+#        必须用 condition 精确钉住 categorynum=001001004001（采购公告）。
+#   · 响应是双层：{"code":200,"content":"{\"result\":{...}}"}，
+#     所以配了 json_unwrap: content。标题正文里还夹着
+#     <em style='color:red'> 高亮标签，解析层统一剥掉。
+#   · 时间范围用 time 数组（fieldName=webdate），配合时间窗滚动抓取。
+#     实测近 120 天关键词「法律服务」→ 18 条采购公告。
+#
+# 分类号备忘（categorynum，都是 12 位）：
+#   001001004001 采购公告   ← 只要这个
+#   001001004003 结果公告
+#   001001004007 合同公示
+#   001001012002 中标结果公示
+
+id: sxggzy
+name: 陕西公共资源交易
+base_url: https://www.sxggzyjy.cn
+enabled: true
+mode: http
+version: "1.0.0"
+schedule: "5 */3 * * *"
+
+search_url: "https://www.sxggzyjy.cn/inteligentsearch_new/rest/esinteligentsearch/getFullTextDataNew"
+
+response_type: json
+post_json: true
+json_unwrap: content
+json_items: "result.records"
+
+json_fields:
+  title: "title"
+  url: "linkurl"
+  publish_time: "webdate"
+  content: "content"
+  notice_type: "categoryname"
+
+# 省级平台，覆盖范围恒定是陕西。正文里常写「陕西省·西安市·雁塔区」，
+# 交给文本推断也能命中，但写死更省事也更准。
+static_fields:
+  province: "陕西"
+
+post_data:
+  token: ""
+  pn: "{pn}"
+  rn: "10"
+  sdt: ""
+  edt: ""
+  wd: "{keyword}"
+  inc_wd: ""
+  exc_wd: ""
+  # 只搜标题，不要写成 "title;content"。
+  # 正文里凡是提到「依照相关法律法规」的公告都会被命中，
+  # 实测会把「执法扣留车辆存放场地租赁」「书法艺术教育学院」这类
+  # 跟法律服务毫无关系的采购也捞进来，噪音远大于召回。
+  fields: "title"
+  cnum: "001"
+  # sort 必须是**字符串形式**的 JSON，写成嵌套对象会让接口直接 500
+  #（返回「系统出现了一点故障」）。按 webdate 降序，最新的排在最前。
+  sort: '{"webdate":"0"}'
+  # ssort 是「匹配度排序」，非空会盖掉 sort，拿到的是相关度最高而不是最新的
+  ssort: ""
+  cl: "3000"
+  terminal: ""
+  # 只取采购公告，把结果公告/合同公示/供应商主体挡在外面
+  condition:
+    - equal: "001001004001"
+      equalList: null
+      fieldName: "categorynum"
+      notEqual: null
+      notEqualList: null
+  # 不做时间过滤：法律类公告本就稀疏，按增量时间窗去问经常一条都没有，
+  # 还会被误判成「选择器失效」。改为按时间倒序直接取最新若干条。
+  time: null
+  highlights: "title;content"
+  statistics: null
+  unionCondition: null
+  accuracy: ""
+  noParticiple: "0"
+  searchRange: null
+
+# ES 会先分词，搜「法律」本身就能命中「法律顾问」「法律服务」，
+# 所以只留三个互补短词，避免把同一批公告翻三遍。
+default_keyword: 法律
+keywords:
+  - 法律
+  - 律师
+  - 诉讼
+
+delay:
+  min: 1.5
+  max: 3.0
+
+pagination:
+  type: page_param
+  param: pn
+  page_size: 10
+  # 时间倒序下前 10 条已经覆盖最近一两个月，翻页只会拿到更老的
+  max_pages: 1
+
+# 接口本身就回了正文（cl=3000 够抽预算和截止时间），不必再逐条取详情
+fetch_detail: false
+
+# 不按时间切窗（见上）
+window_days: 0

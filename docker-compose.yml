@@ -1,0 +1,46 @@
+# 一键起服务：docker compose up -d
+#
+# 数据与规则都挂载为 volume：改站点 YAML 不用重建镜像，只需在界面上点「重载规则」。
+
+services:
+  tender-radar:
+    build: .
+    image: tender-radar:latest
+    container_name: tender-radar
+    restart: unless-stopped
+    ports:
+      # 只绑本机端口，强制流量走 Nginx 反代（对外只开 80/443）。
+      # 想临时用 http://IP:8000 直连调试，把下面的 127.0.0.1: 去掉即可。
+      - "127.0.0.1:8000:8000"
+    volumes:
+      # 绑定挂载不会从镜像里复制内容，宿主机必须真的有这些目录：
+      #   mkdir -p data configs
+      - ./data:/app/data          # SQLite + 原文快照，务必持久化（别放 NFS）
+      - ./configs:/app/configs    # 站点规则，改完到「来源」页点「重载规则」
+    environment:
+      TZ: Asia/Shanghai
+      TR_SCHEDULER_ENABLED: "true"
+      TR_SCHEDULER_INTERVAL_MIN: "120"
+      # 生产建议改用 PostgreSQL（取消下面注释并部署 db 服务）
+      # TR_DATABASE_URL: "postgresql://tender:tender@db:5432/tender"
+      # TR_NOTIFY_ENABLED: "true"
+      # TR_NOTIFY_WEBHOOK: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx"
+    env_file:
+      - path: .env
+        required: false
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── 可选：把 SQLite 换成 PostgreSQL（数据量大时）──────────────
+  # db:
+  #   image: postgres:16-alpine
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_USER: tender
+  #     POSTGRES_PASSWORD: tender
+  #     POSTGRES_DB: tender
+  #   volumes:
+  #     - ./pgdata:/var/lib/postgresql/data
